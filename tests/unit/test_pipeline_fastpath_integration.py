@@ -1,18 +1,18 @@
 """
-Unit tests for ActionPipeline integrated with FastPath and HardwareMemory.
+Unit tests for ActionPipeline pure-LLM agentic routing.
+All queries go directly to the LLM ReAct loop unless synthesized into SkillMemory.
 """
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
 from core.pipeline import ActionPipeline
-from core.fastpath import EngineeringFastPath
 from core.hardware_memory import HardwareMemory
 from core.skill_memory import SkillMemory
 from core.reasoning import ReasoningEngine
 
 
 @pytest.mark.asyncio
-async def test_pipeline_fastpath_priority(hardware_memory: HardwareMemory):
+async def test_pipeline_queries_routed_to_llm(hardware_memory: HardwareMemory):
     # Registrar un dispositivo
     hardware_memory.register_device(
         device_id="stm32_board",
@@ -22,44 +22,48 @@ async def test_pipeline_fastpath_priority(hardware_memory: HardwareMemory):
         baud_rate=115200,
     )
 
-    fastpath = EngineeringFastPath(hardware_memory=hardware_memory)
     mock_reasoning = MagicMock(spec=ReasoningEngine)
-    mock_reasoning.think = AsyncMock()
+    mock_reasoning.think = AsyncMock(return_value={
+        "text": "Checking devices via LLM reasoning.",
+        "tool_calls": [],
+    })
     mock_skill_mem = MagicMock(spec=SkillMemory)
     mock_skill_mem.lookup.return_value = None
 
     pipeline = ActionPipeline(
         reasoning=mock_reasoning,
         skill_memory=mock_skill_mem,
-        fastpath=fastpath,
         hardware_memory=hardware_memory,
     )
 
-    # Consulta que debe ser interceptada por FastPath
+    # Consulta que antes era interceptada por FastPath: ahora va 100% al LLM
     result = await pipeline.process("listar dispositivos")
-    assert result["path_used"] == "fastpath"
+    assert result["path_used"] == "new"
     assert result["success"] is True
-    assert "STM32_BOARD" in result["response"]
-    # ReasoningEngine no debió ser llamado (0 llamadas al LLM)
-    mock_reasoning.think.assert_not_called()
+    # ReasoningEngine SI debe ser llamado
+    mock_reasoning.think.assert_called()
 
 
 @pytest.mark.asyncio
-async def test_pipeline_fallback_to_reflexive(hardware_memory: HardwareMemory):
-    fastpath = EngineeringFastPath(hardware_memory=hardware_memory)
+async def test_pipeline_skill_memory_cached_dispatch(hardware_memory: HardwareMemory):
     mock_reasoning = MagicMock(spec=ReasoningEngine)
     mock_reasoning.think = AsyncMock()
     mock_skill_mem = MagicMock(spec=SkillMemory)
+    # Simular una habilidad ya aprendida y sintetizada
+    mock_skill_mem.lookup.return_value = {
+        "response": "Cached synthesis executed instantly.",
+        "calls": [],
+    }
 
     pipeline = ActionPipeline(
         reasoning=mock_reasoning,
         skill_memory=mock_skill_mem,
-        fastpath=fastpath,
         hardware_memory=hardware_memory,
     )
 
-    # Saludo estándar -> interceptado por Path 1 (Reflexive)
-    result = await pipeline.process("hola")
-    assert result["path_used"] == "reflexive"
-    assert "Hello" in result["response"]
+    # Consulta aprendida -> ejecutada directamente desde SkillMemory
+    result = await pipeline.process("rutina sintetizada")
+    assert result["path_used"] == "known"
+    assert "Cached synthesis" in result["response"]
+    # No llama al LLM porque ya fue probado y adquirido
     mock_reasoning.think.assert_not_called()

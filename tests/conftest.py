@@ -15,7 +15,6 @@ import pytest
 from abilities.base import Ability
 from abilities.registry import AbilityRegistry
 from core.hardware_memory import HardwareMemory
-from core.fastpath import EngineeringFastPath
 
 
 @pytest.fixture

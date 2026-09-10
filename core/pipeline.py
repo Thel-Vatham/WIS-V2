@@ -1,17 +1,12 @@
-"""WIS Action Pipeline v3.0 — Full-Agentic ReAct loop.
+"""WIS Action Pipeline v3.0 — Pure-LLM Agentic ReAct loop.
 
-Cognitive path cascade:
-  0. FASTPATH   — Pure hardware data queries (Device Graph, Pinouts). 0ms, no LLM.
-  1. REFLEXIVE  — Trivial intents (greetings, identity). Embedding classifier, no LLM.
-  2. KNOWN      — SkillMemory cache: proven+verified sequences → instant execution.
-                  THIS is the real fastpath for synthesized skills.
-  3. NEW        — Full LLM ReAct loop:
-                  think → parallel execute → empirical verify → metacognitive check
-                  → auto-repair → synthesize → cache in SkillMemory.
-
-Architectural note:
-  Everything non-trivial goes to the LLM (like AVRORA). The 'fast' execution comes
-  from SkillMemory synthesis after a sequence is proven — not from hardcoded heuristics.
+Cognitive architecture (AVRORA philosophy):
+  - NO hardcoded heuristics, regex fastpaths, or shortcuts.
+  - EVERY initial user query goes directly to the LLM ReAct loop:
+      think → parallel execute → empirical verify → metacognitive check
+      → auto-repair → synthesize → cache in SkillMemory.
+  - The ONLY fast execution is SkillMemory (proven+verified sequences).
+    Speed is earned dynamically through synthesis, never hardcoded.
 """
 from __future__ import annotations
 
@@ -32,7 +27,6 @@ from core.verifier import MetacognitiveVerifier
 
 logger = logging.getLogger("wis.core.pipeline")
 
-PATH_REFLEXIVE = "reflexive"
 PATH_KNOWN = "known"
 PATH_NEW = "new"
 
@@ -43,7 +37,7 @@ AbilityFn = Callable[[Dict[str, Any]], Any]
 
 
 class ActionPipeline:
-    """Pipeline de accion con 3 caminos cognitivos y loop agentico multi-paso."""
+    """Pipeline de accion puramente agentico con razonamiento LLM y SkillMemory."""
 
     def __init__(
         self,
@@ -57,7 +51,7 @@ class ActionPipeline:
     ) -> None:
         self.reasoning: ReasoningEngine = reasoning
         self.skill_memory: SkillMemory = skill_memory
-        self.fastpath = fastpath
+        self.fastpath = None  # Deprecated & bypassed: 100% LLM driven
         self.hardware_memory = hardware_memory
         if isinstance(abilities, dict):
             self.abilities: Any = dict(abilities)
@@ -139,7 +133,7 @@ class ActionPipeline:
                 "response": "",
                 "calls": [],
                 "results": [],
-                "path_used": PATH_REFLEXIVE,
+                "path_used": PATH_NEW,
                 "success": True,
             }
 
@@ -150,29 +144,8 @@ class ActionPipeline:
         event_bus.emit("pipeline.input_received", {"text": text})
         self._cancel_event = asyncio.Event()
 
-        # --- Path 0: Engineering Fast-Path (0ms Deterministic Hardware / Devices / Commands) ---
-        if self.fastpath is not None:
-            fast_res = await self.fastpath.try_handle(text)
-            if fast_res is not None and fast_res.get("handled"):
-                event_bus.emit("pipeline.fastpath_hit", {"text": text[:80]})
-                return self._finalize(fast_res, "fastpath", success=True)
-
-        # --- Path 1: Reflexive ---
-        result = await self._try_reflexive(text)
-        if result is not None:
-            event_bus.emit("pipeline.reflexive_hit", {"text": text[:80]})
-            event_bus.emit("pipeline.path_start", {"path": PATH_REFLEXIVE, "text": text[:80]})
-            calls = result.get("calls", [])
-            if calls:
-                results, ok = await self._execute_calls(calls)
-                result["results"] = results
-                result["success"] = ok
-                result["response"] = self._compose_result_response(
-                    result.get("response", ""), calls, results
-                )
-            return self._finalize(result, PATH_REFLEXIVE, success=result.get("success", True))
-
-        # --- Path 2: Known (SkillMemory cache) ---
+        # --- Path: Known (SkillMemory cache) ---
+        # ONLY previously proven, tested, and synthesized skills are replayed.
         result = self._try_known(text)
         if result is not None:
             event_bus.emit("pipeline.known_hit", {"text": text[:80]})
@@ -195,7 +168,7 @@ class ActionPipeline:
             }
             return self._finalize(final, PATH_KNOWN, success=ok)
 
-        # --- Path 3: New (Multi-Step Agentic Loop) ---
+        # --- Path: Pure-LLM ReAct Loop (ALL new tasks go directly to LLM) ---
         event_bus.emit("pipeline.new_path", {"text": text[:80]})
         event_bus.emit("pipeline.path_start", {"path": PATH_NEW, "text": text[:80]})
         result = await self._try_new(text, sensor_data, tools)

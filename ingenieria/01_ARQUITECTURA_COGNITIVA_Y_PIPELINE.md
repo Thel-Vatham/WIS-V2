@@ -1,32 +1,29 @@
-# 🧠 WIS v3.0 — Arquitectura Cognitiva y Pipeline de Ejecución
+# 🧠 WIS v3.0 — Arquitectura Cognitiva Pure-LLM y Pipeline de Ejecución
 
-El corazón de WIS es su **ActionPipeline** ([core/pipeline.py](file:///d:/WIS/core/pipeline.py)), un motor orquestador que gestiona la cascada de razonamiento y ejecución mediante cuatro caminos cognitivos optimizados según latencia, determinismo y costo computacional.
+El corazón de WIS es su **ActionPipeline** ([core/pipeline.py](file:///d:/WIS/core/pipeline.py)), un motor orquestador basado en la **filosofía pura de AVRORA**:
+- **Cero heurísticas hardcoded:** No existen interceptores de expresiones regulares ni atajos que eviten el razonamiento.
+- **Todo pasa por el LLM:** Toda solicitud nueva ingresa directamente al bucle ReAct (`think → parallel execute → verify → metacognitive check → repair → synthesize`).
+- **Velocidad adquirida dinámicamente:** La única ejecución instantánea proviene de `SkillMemory`, que cachea secuencias completas **únicamente después** de que el LLM las ha probado, verificado empíricamente y sintetizado con éxito.
 
 ---
 
-## 1. Cascada Cognitiva de 4 Caminos (Latency Cascade)
+## 1. Flujo Cognitivo Pure-LLM
 
 ```mermaid
 flowchart TD
-    IN(["⚡ ENTRADA DEL USUARIO / TELEMETRÍA"]) --> P0{"[Path 0] EngineeringFastPath?<br>(Regex + DB + Serial Directo)"}
+    IN(["⚡ ENTRADA DEL USUARIO / TELEMETRÍA"]) --> P1{"¿Conocido en SkillMemory Cache?<br>(FAISS IndexFlatIP + SQLite)"}
     
-    P0 -- "Match (0ms, sin LLM)" --> R0["Respuesta Inmediata / Despacho Hardware"]
-    P0 -- "Miss" --> P1{"[Path 1] Reflexivo?<br>(FastEmbed MiniLM Cosine)"}
-    
-    P1 -- "Match (~2ms, local)" --> R1["Ejecución de Acción Refleja"]
-    P1 -- "Miss" --> P2{"[Path 2] Conocido en Cache?<br>(SkillMemory FAISS IndexFlatIP)"}
-    
-    P2 -- "Hit (Score >= 0.88)" --> R2["Reproducción Directa de Tool Calls"]
-    P2 -- "Miss" --> P3["[Path 3] ReAct Multi-Step Loop<br>(Razonamiento Profundo + Auto-reparación)"]
+    P1 -- "Hit (Secuencia Sintetizada y Probada)" --> R1["Reproducción Directa de Tool Calls (Instantánea)"]
+    P1 -- "Miss (Nueva Consulta)" --> P2["[Pure LLM] ReAct Multi-Step Loop<br>(Razonamiento Profundo + Auto-reparación)"]
     
     subgraph Loop ["Bucle ReAct con Paralelismo"]
-        P3 --> THINK["Think: LLM genera Tool Calls"]
-        THINK --> PARALLEL["Execute: asyncio.gather(Tool Calls)"]
+        P2 --> THINK["Think: LLM analiza la intención y genera Tool Calls"]
+        THINK --> PARALLEL["Execute: asyncio.gather(Tool Calls Paralelas)"]
         PARALLEL --> EMPIRICAL["Verificación Empírica (PID / File / ACK / QoS)"]
         EMPIRICAL --> REPAIR{"¿Fallo de Ejecución?"}
-        REPAIR -- "Sí" --> AUTO_FIX["Auto-Repair: Inyecta diagnóstico al LLM"]
+        REPAIR -- "Sí" --> AUTO_FIX["Auto-Repair: Inyecta diagnóstico del SO al LLM"]
         AUTO_FIX --> THINK
-        REPAIR -- "No" --> SYNTH["Síntesis Final Anti-Alucinación"]
+        REPAIR -- "No" --> SYNTH["Síntesis Final Anti-Alucinación + Cache en SkillMemory"]
     end
     
     SYNTH --> VERIF["MetaCognitive Verifier (core/verifier.py)"]
@@ -37,31 +34,16 @@ flowchart TD
 
 ## 2. Detalle de los Caminos Cognitivos
 
-### Path 0: EngineeringFastPath (`core/fastpath.py`)
-- **Latencia:** 0 ms (tiempo de CPU puro).
-- **Consumo LLM:** Cero tokens, cero llamadas a red.
-- **Alcance:** Más de 25 patrones determinísticos de ingeniería y hardware:
-  - Consultas al Grafo de Dispositivos SQLite (`listar dispositivos`, `puertos activos`).
-  - Mapeo y búsqueda de pinouts (`pinout de ESP32`, `gpio i2c sensor`).
-  - Despacho directo a puertos serie (`enviar 'STATUS' a COM3`).
-  - Comandos procedimentales memorizados (`compilar firmware`, `flashear placa`).
-  - Conexión y desconexión rápida de periféricos.
-
-### Path 1: Intención Refleja sin LLM (`core/pipeline.py`)
-- **Latencia:** ~2-5 ms.
-- **Mecanismo:** Reemplazó el antiguo clasificador basado en TinyLlama (que tardaba 3 segundos y sufría timeouts) por un clasificador semántico local impulsado por `fastembed` (`sentence-transformers/all-MiniLM-L6-v2`).
-- **Comportamiento:** Compara la distancia coseno de la entrada contra vectores de intenciones básicas (saludos, hora del sistema, estado de recursos, apertura de aplicaciones predeterminadas). Si la similitud supera el umbral de confianza, resuelve instantáneamente sin tocar ningún modelo generativo.
-
-### Path 2: Memoria de Habilidades Memorizadas (`core/skill_memory.py`)
+### Path 1: Memoria de Habilidades Sintetizadas (`core/skill_memory.py`)
 - **Latencia:** ~10-15 ms.
 - **Mecanismo:** Vector Index de alta velocidad basado en **FAISS IndexFlatIP** respaldado por SQLite (`Data/wis_skills.db`).
-- **Comportamiento:** Cuando una secuencia multi-paso tiene éxito en Path 3, el sistema sintetiza y memoriza el grafo de llamadas resultante. Si el usuario solicita la misma tarea (o una con semántica análoga), Path 2 recupera la secuencia exacta y la ejecuta directamente, logrando velocidad instantánea en tareas recurrentes complejas.
+- **Comportamiento:** Cuando una secuencia multi-paso tiene éxito en el bucle ReAct del LLM, el sistema sintetiza y memoriza el grafo de llamadas resultante. La próxima vez que el usuario solicite la misma tarea (o una semánticamente análoga), se recupera la secuencia exacta ya validada, logrando velocidad instantánea en tareas recurrentes complejas sin depender de heurísticas estáticas.
 
-### Path 3: ReAct Multi-Step Loop con Ejecución Paralela
-Cuando la solicitud es novedosa o requiere solución de problemas compleja, se activa el bucle ReAct:
+### Path 2: ReAct Multi-Step Loop Pure-LLM
+Toda solicitud nueva pasa directamente por el modelo de lenguaje:
 1. **Razonamiento (`core/reasoning.py`):** El LLM genera una secuencia estructurada de llamadas a herramientas (`tool_calls`).
-2. **Ejecución Paralela (`asyncio.gather`):** A diferencia de arquitecturas tradicionales que ejecutan herramientas en serie, WIS evalúa las dependencias y despacha herramientas independientes en paralelo (por ejemplo: leer 4 sensores simultáneamente toma el tiempo del más lento, no la suma de todos).
-3. **Verificación Empírica:** WIS **no cree en lo que el LLM afirma**. Si se lanza un proceso, comprueba `psutil.pid_exists()`. Si se escribe un archivo, comprueba tamaño y hash en disco. Si se envía un byte por UART, espera el ACK físico del microcontrolador. Si se publica por MQTT, valida el ACK de QoS.
+2. **Ejecución Paralela (`asyncio.gather`):** Evalúa las dependencias y despacha herramientas independientes en paralelo (por ejemplo: leer 4 sensores simultáneamente toma el tiempo del más lento, no la suma de todos).
+3. **Verificación Empírica:** WIS **no cree ciegamente en lo que el LLM afirma**. Si se lanza un proceso, comprueba `psutil.pid_exists()`. Si se escribe un archivo, comprueba tamaño y hash en disco. Si se envía un byte por UART, espera el ACK físico del microcontrolador. Si se publica por MQTT, valida el ACK de QoS.
 4. **Auto-reparación Dinámica:** Si una herramienta devuelve error o no supera la verificación empírica, el error real del sistema operativo se inyecta en el contexto y el modelo formula un plan alternativo de forma autónoma.
 5. **Síntesis con Trazabilidad:** La respuesta final se genera forzando un prompt de honestidad alimentado por el trace JSON de las acciones reales ejecutadas.
 

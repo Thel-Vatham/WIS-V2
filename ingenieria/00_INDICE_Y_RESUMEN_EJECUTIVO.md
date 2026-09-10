@@ -44,7 +44,6 @@ D:\WIS\
 │
 ├── core/                   # Núcleo Cognitivo y Sistema Nervioso Agéntico
 │   ├── event_bus.py        # Bus de eventos asíncrono pub/sub central
-│   ├── fastpath.py         # EngineeringFastPath (Path 0: 0ms latencia, sin LLM)
 │   ├── goal_manager.py     # Gestor y planificador de metas operativas
 │   ├── hardware_memory.py  # Base de datos relacional de hardware y pinouts
 │   ├── llm_client.py       # Abstracción multimodelo (DeepSeek, OpenRouter, etc.)
@@ -52,7 +51,7 @@ D:\WIS\
 │   ├── long_horizon.py     # Motor de tareas largas en segundo plano con diario
 │   ├── memory.py           # Memoria episódica y mnemónica
 │   ├── mission.py          # Planificador de misiones DAG (grafos de dependencias)
-│   ├── pipeline.py         # ActionPipeline con 4 caminos cognitivos y tool calling paralelo
+│   ├── pipeline.py         # ActionPipeline Pure-LLM con tool calling paralelo y SkillMemory
 │   ├── proactivity.py      # Motor proactivo autónomo basado en reglas
 │   ├── reasoning.py        # ReasoningEngine / Cortex con prompting estricto en inglés
 │   ├── safety.py           # Aegis Safety Policy (Modos Secure y Privileged)

@@ -239,11 +239,7 @@ def build_core(settings: dict) -> dict:
     _register_default_abilities(registry, settings, hw_vault)
     logger.info(f"Abilities: {list(registry.all().keys())}")
 
-    # --- Engineering Fast-Path ---
-    from core.fastpath import EngineeringFastPath
-    fast_router = EngineeringFastPath(hardware_memory=hw_vault, abilities=registry)
-
-    # --- Action Pipeline (multi-step) ---
+    # --- Action Pipeline (Pure-LLM Agentic ReAct Multi-Step) ---
     max_steps = agentic_cfg.get("max_steps", 10)
     praxis = ActionPipeline(
         reasoning=cortex,
@@ -251,10 +247,9 @@ def build_core(settings: dict) -> dict:
         abilities=registry,
         safety=aegis,
         max_steps=max_steps,
-        fastpath=fast_router,
         hardware_memory=hw_vault,
     )
-    logger.info(f"ActionPipeline ready (Fast-Path + 3 cognitive paths, max_steps={max_steps})")
+    logger.info(f"ActionPipeline ready (Pure-LLM Agentic ReAct loop, max_steps={max_steps})")
 
     # --- Proactivity Engine ---
     proactivity = None
@@ -317,7 +312,6 @@ def build_core(settings: dict) -> dict:
         "long_horizon": long_horizon,
         "task_store": task_store,
         "hardware_memory": hw_vault,
-        "fastpath": fast_router,
     }
 
 

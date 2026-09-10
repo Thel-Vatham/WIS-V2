@@ -7,7 +7,6 @@ from pathlib import Path
 from abilities.registry import AbilityRegistry
 from core.hardware_memory import HardwareMemory
 from core.skill_synthesizer import SkillSynthesizer
-from core.fastpath import EngineeringFastPath
 
 
 @pytest.mark.asyncio
@@ -122,12 +121,10 @@ class RoboticGripperAbility(Ability):
     assert best_cmd is not None
     assert best_cmd["success_count"] == 1
 
-    # 7. Validar que el Fast-Path responda en 0ms
-    fastpath = EngineeringFastPath(hardware_memory=hw_memory, abilities=registry.all())
-    fp_res = await fastpath.try_handle("where is the gripper_servo_pwm")
-    assert fp_res is not None
-    assert fp_res["handled"] is True
-    assert "GPIO12" in fp_res["response"]
-    assert "gripper_servo_pwm" in fp_res["response"]
+    # 7. Validar consulta de pinout en HardwareMemory
+    pin_info = hw_memory.find_pin_by_label("gripper_servo_pwm")
+    assert len(pin_info) > 0
+    assert pin_info[0]["pin_or_gpio"] == "GPIO12"
+    assert pin_info[0]["label"] == "gripper_servo_pwm"
 
     hw_memory.close()
