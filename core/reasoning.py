@@ -38,7 +38,8 @@ class ReasoningEngine:
         self.memory: Memory = memory
         self.router: ModelRouter = router or ModelRouter()
         # Mapa: nombre_funcion_api → (skill, action) para revertir tool_calls.
-        self._tool_map: Dict[str, Tuple[str, str]] = {}
+        self._tool_map: Dict[str, Any] = {}
+        self._tool_name_map = self._tool_map
 
     async def think(
         self,
@@ -237,7 +238,7 @@ class ReasoningEngine:
                     suffix += 1
                     fn_name = f"{base_name}_{suffix}"
                 seen_names.add(fn_name)
-                self._tool_name_map[fn_name] = (skill_name, action_name)
+                self._tool_map[fn_name] = (skill_name, action_name)
                 api_tools.append({
                     "type": "function",
                     "function": {
