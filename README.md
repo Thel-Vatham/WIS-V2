@@ -104,9 +104,10 @@ WIS/
 ## ⚡ Quick Start (Windows)
 
 ### 1. Instalación Automática
-Ejecuta el script desatendido según tu caso:
-- **PC Nueva / Sin Python previo:** Doble clic en `instalar.bat`
-- **PC con Python ya instalado:** Doble clic en `setup.bat`
+Ejecuta el instalador desatendido de WIS v3.0 (verifica Python, entorno virtual y dependencias automáticamente):
+```cmd
+instalar.bat
+```
 
 ### 2. Configurar Claves de API (`Keys.env`)
 Edita `Keys.env` y coloca tu API key:
