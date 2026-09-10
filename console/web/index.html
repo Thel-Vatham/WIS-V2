@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WIS — Cognitive OS</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@300;400;500;600&family=Space+Grotesk:wght@400;500;600;700&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+    <!-- ══════════════ WINDOW RESIZE HANDLES (frameless pywebview) ══════════════ -->
+    <div class="win-resize win-resize-n" data-dir="n"></div>
+    <div class="win-resize win-resize-s" data-dir="s"></div>
+    <div class="win-resize win-resize-e" data-dir="e"></div>
+    <div class="win-resize win-resize-w" data-dir="w"></div>
+    <div class="win-resize win-resize-ne" data-dir="ne"></div>
+    <div class="win-resize win-resize-nw" data-dir="nw"></div>
+    <div class="win-resize win-resize-se" data-dir="se"></div>
+    <div class="win-resize win-resize-sw" data-dir="sw"></div>
+
+    <!-- ══════════════ BOOT OVERLAY ══════════════ -->
+    <div id="boot-overlay" class="boot-overlay">
+        <div class="boot-content">
+            <div class="boot-mark">W·I·S</div>
+            <div class="boot-subtitle">Cognitive Operating System &mdash; v2.0</div>
+            <div class="boot-log-area" id="boot-log"></div>
+            <div class="boot-bar">
+                <div id="boot-fill" class="boot-fill"></div>
+            </div>
+            <div class="boot-pct" id="boot-pct">0%</div>
+        </div>
+    </div>
+
+    <!-- ══════════════ MAIN SHELL ══════════════ -->
+    <div id="wis-root" class="wis-root hidden">
+
+        <!-- TITLEBAR — drag region -->
+        <header class="titlebar pywebview-drag-region" id="titlebar">
+            <div class="tb-left">
+                <div class="wis-orb" id="wis-orb" title="Status"></div>
+                <span class="tb-name">W·I·S</span>
+                <span class="tb-tag">Cognitive OS</span>
+            </div>
+            <div class="tb-center" id="tb-status">SYSTEM ONLINE</div>
+            <div class="tb-right">
+                <span class="hud-pill" id="pill-mode" title="Security mode">PRIVILEGED</span>
+                <span class="hud-pill dim" id="pill-path" title="Last cognitive path">—</span>
+                <span class="hud-pill green" id="pill-ws" title="WebSocket">● WS</span>
+                <span class="tb-divider"></span>
+                <button class="tb-btn tb-toggle-btn" id="btn-toggle-left" title="Ocultar / Mostrar Panel Izquierdo (Ctrl+[)">◀ Izq</button>
+                <button class="tb-btn tb-toggle-btn" id="btn-toggle-both" title="Modo Enfoque — Consola Completa 100% (Ctrl+\)">⛶ Consola 100%</button>
+                <button class="tb-btn tb-toggle-btn" id="btn-toggle-right" title="Ocultar / Mostrar Panel Derecho (Ctrl+])">Der ▶</button>
+                <span class="tb-divider"></span>
+                <button class="tb-btn" id="btn-security" title="Toggle security mode">⚡</button>
+                <button class="tb-btn" id="btn-tts" title="Toggle TTS">🔊</button>
+                <button class="tb-btn" id="btn-new-window" title="Open render window">⊞</button>
+                <button class="tb-btn" id="btn-minimize" title="Minimize">—</button>
+                <button class="tb-btn" id="btn-maximize" title="Maximize / Restore">□</button>
+                <button class="tb-btn danger" id="btn-close" title="Close">✕</button>
+            </div>
+        </header>
+
+        <!-- WORKSPACE -->
+        <div class="workspace" id="workspace">
+
+            <!-- LEFT SIDEBAR -->
+            <aside class="sidebar left-sidebar" id="left-sidebar">
+                <div class="sidebar-top-bar">
+                    <span class="sidebar-top-title">DISPOSITIVOS & TELEMETRÍA</span>
+                    <button class="mini-btn close-sidebar-btn" id="btn-close-left" title="Ocultar panel izquierdo (Ctrl+[)">✕ Ocultar</button>
+                </div>
+                <section class="panel" data-collapsible>
+                    <div class="panel-hd">
+                        <span class="panel-hd-title">Hardware Graph</span>
+                        <div class="panel-hd-right">
+                            <span class="badge" id="hw-count">0</span>
+                            <span class="chevron">›</span>
+                        </div>
+                    </div>
+                    <div class="panel-body" id="hardware-list">
+                        <div class="empty-state">Scanning devices...</div>
+                    </div>
+                </section>
+
+                <section class="panel flex1" data-collapsible>
+                    <div class="panel-hd">
+                        <span class="panel-hd-title">Telemetry</span>
+                        <div class="panel-hd-right">
+                            <div class="pulse-dot" id="telemetry-dot"></div>
+                            <span class="chevron">›</span>
+                        </div>
+                    </div>
+                    <div class="panel-body" id="telemetry-list">
+                        <div class="empty-state">Awaiting sensor data...</div>
+                    </div>
+                </section>
+            </aside>
+
+            <!-- RESIZER LEFT -->
+            <div class="resizer resizer-left" id="resizer-left" title="Drag to resize · Double-click to reset"></div>
+
+            <!-- TERMINAL -->
+            <main class="terminal-pane">
+                <div class="terminal-output" id="terminal-output"></div>
+
+                <div class="thinking-row hidden" id="thinking-row">
+                    <div class="thinking-dots"><span></span><span></span><span></span></div>
+                    <span id="thinking-label">WIS is reasoning...</span>
+                    <button class="mini-btn danger ml-auto" id="btn-cancel">✕ cancel</button>
+                </div>
+
+                <div class="input-row">
+                    <span class="prompt-sym">❯</span>
+                    <textarea id="user-input" class="terminal-input" placeholder="Speak your intent or command..."
+                        rows="1" autocomplete="off" spellcheck="false"></textarea>
+                    <button class="tb-btn" id="btn-mic" title="Voice input">🎙</button>
+                    <button class="tb-btn" id="btn-upload" title="Upload file">📎</button>
+                    <button class="tb-btn accent" id="btn-send" title="Send">⏎</button>
+                    <input type="file" id="file-input" style="display:none" accept="*/*">
+                </div>
+            </main>
+
+            <!-- RESIZER RIGHT -->
+            <div class="resizer resizer-right" id="resizer-right" title="Drag to resize · Double-click to reset"></div>
+
+            <!-- RIGHT SIDEBAR -->
+            <aside class="sidebar right-sidebar" id="right-sidebar">
+                <div class="sidebar-top-bar">
+                    <span class="sidebar-top-title">PLANES & TRAZAS</span>
+                    <button class="mini-btn close-sidebar-btn" id="btn-close-right" title="Ocultar panel derecho (Ctrl+])">✕ Ocultar</button>
+                </div>
+                <section class="panel" data-collapsible>
+                    <div class="panel-hd">
+                        <span class="panel-hd-title">Goal Queue</span>
+                        <div class="panel-hd-right">
+                            <button class="mini-btn" id="btn-add-goal">+ Goal</button>
+                            <span class="chevron">›</span>
+                        </div>
+                    </div>
+                    <div class="panel-body" id="goal-list">
+                        <div class="empty-state">No active goals</div>
+                    </div>
+                </section>
+
+                <section class="panel flex1" data-collapsible>
+                    <div class="panel-hd">
+                        <span class="panel-hd-title">Long Horizon Tasks</span>
+                        <div class="panel-hd-right">
+                            <button class="mini-btn" id="btn-add-lh-task">+ Task</button>
+                            <span class="chevron">›</span>
+                        </div>
+                    </div>
+                    <div class="panel-body" id="lh-task-list">
+                        <div class="empty-state">No long-horizon tasks</div>
+                    </div>
+                </section>
+
+                <section class="panel flex1" data-collapsible>
+                    <div class="panel-hd">
+                        <span class="panel-hd-title">Execution Trace</span>
+                        <div class="panel-hd-right"><span class="chevron">›</span></div>
+                    </div>
+                    <div class="panel-body" id="trace-list">
+                        <div class="empty-state">Pipeline idle</div>
+                    </div>
+                </section>
+            </aside>
+
+        </div>
+    </div>
+
+    <!-- MODALS (unchanged) -->
+    <div id="approval-modal" class="modal-overlay hidden">
+        <div class="modal-card danger-card">
+            <div class="modal-icon">⚠</div>
+            <h3>Security Clearance Required</h3>
+            <p id="approval-text">Awaiting action details...</p>
+            <div class="modal-btns">
+                <button class="modal-btn deny" id="btn-deny">Deny</button>
+                <button class="modal-btn authorize" id="btn-authorize">Authorize</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="goal-modal" class="modal-overlay hidden">
+        <div class="modal-card">
+            <h3>Create Goal</h3>
+            <input type="text" id="goal-input" class="modal-input" placeholder="Describe the objective..."
+                autocomplete="off">
+            <div class="priority-row">
+                <label>Priority</label>
+                <input type="range" id="goal-priority" min="1" max="10" value="5">
+                <span id="goal-priority-val" class="badge">5</span>
+            </div>
+            <div class="modal-btns">
+                <button class="modal-btn deny" id="btn-goal-cancel">Cancel</button>
+                <button class="modal-btn authorize" id="btn-goal-submit">Launch</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="lh-modal" class="modal-overlay hidden">
+        <div class="modal-card">
+            <h3>Long-Horizon Task</h3>
+            <p class="modal-hint">WIS will autonomously plan and execute this over multiple steps, persisting even when
+                the console closes.</p>
+            <textarea id="lh-task-input" class="modal-input" rows="3" placeholder="Describe the long-term objective..."
+                autocomplete="off"></textarea>
+            <div class="priority-row">
+                <label>Priority</label>
+                <input type="range" id="lh-priority" min="1" max="10" value="5">
+                <span id="lh-priority-val" class="badge">5</span>
+            </div>
+            <div class="modal-btns">
+                <button class="modal-btn deny" id="btn-lh-cancel">Cancel</button>
+                <button class="modal-btn authorize" id="btn-lh-submit">Start Daemon</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+
+</html>
