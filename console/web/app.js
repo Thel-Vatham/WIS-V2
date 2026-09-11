@@ -703,7 +703,19 @@ function appendStreamChunk(chunk) {
     }
 
     State.currentStreamMsg.dataset.raw = (State.currentStreamMsg.dataset.raw || "") + chunk;
-    State.currentStreamMsg.innerHTML = formatMarkdown(State.currentStreamMsg.dataset.raw);
+    
+    let displayRaw = State.currentStreamMsg.dataset.raw;
+    const jsonMatch = displayRaw.match(/(?:```(?:json)?\s*)?\{\s*"(?:tool_calls|calls)"\s*:/);
+    if (jsonMatch) {
+        displayRaw = displayRaw.substring(0, jsonMatch.index).trim();
+    } else {
+        const arrMatch = displayRaw.match(/(?:```(?:json)?\s*)?\[\s*\{\s*"(?:action|name|skill|type|command)"/);
+        if (arrMatch) {
+            displayRaw = displayRaw.substring(0, arrMatch.index).trim();
+        }
+    }
+    
+    State.currentStreamMsg.innerHTML = formatMarkdown(displayRaw);
     scrollTerminalToBottom();
 }
 
@@ -713,6 +725,7 @@ function renderFullResponse(data) {
 
     if (State.currentStreamMsg && State.currentStreamMsg.dataset.raw) {
         // Stream completed
+        State.currentStreamMsg.innerHTML = formatMarkdown(text);
         if (calls.length > 0) {
             renderCallsInBubble(State.currentStreamMsg, calls);
         }

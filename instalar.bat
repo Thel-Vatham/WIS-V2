@@ -72,7 +72,7 @@ if "!PYTHON_EXE!"=="" (
 )
 
 if not "!PYTHON_EXE!"=="" (
-    for /f "tokens=2 delims= " %%v in ('"!PYTHON_EXE!" --version 2^>&1') do set "PY_VER=%%v"
+    for /f "tokens=2 delims= " %%v in ('"!PYTHON_EXE!" --version') do set "PY_VER=%%v"
     for /f "tokens=1,2 delims=." %%a in ("!PY_VER!") do (
         set "PY_MAJOR=%%a" & set "PY_MINOR=%%b"
     )
@@ -80,7 +80,7 @@ if not "!PYTHON_EXE!"=="" (
         echo     ✔ Python !PY_VER! detectado
         set "PYTHON_OK=1"
     )
-    if "!PYTHON_OK!"=="0" echo     ⚠ Python !PY_VER! demasiado antiguo ^(se requiere >= 3.10^)
+    if "!PYTHON_OK!"=="0" echo     ⚠ Python !PY_VER! demasiado antiguo ^(se requiere ^>= 3.10^)
 )
 
 if "!PYTHON_OK!"=="0" (
@@ -165,7 +165,7 @@ echo.
 if errorlevel 1 (
     echo.
     echo  ⚠ Algunos paquetes fallaron. Instalando criticos individualmente...
-    "!VENV_PIP!" install fastapi uvicorn python-multipart httpx pywebview numpy pillow psutil
+    "!VENV_PIP!" install fastapi "uvicorn[standard]" python-multipart httpx pywebview numpy pillow psutil
     "!VENV_PIP!" install duckduckgo-search requests kokoro-onnx soundfile SpeechRecognition
     "!VENV_PIP!" install opencv-python playwright pyautogui pyperclip comtypes pycaw
     "!VENV_PIP!" install uiautomation pywin32 paho-mqtt pyserial fastembed faiss-cpu lxml rapidocr-onnxruntime
@@ -221,6 +221,8 @@ echo   VERIFICACION FINAL DEL ENTORNO WIS
 echo  ═══════════════════════════════════════════════════════════════
 echo.
 
+set "PYTHONIOENCODING=utf-8"
+
 "!VENV_PYTHON!" --version 2>nul && echo   ✅ Python: OK || echo   ❌ Python: ERROR
 "!VENV_PYTHON!" -c "import fastapi; print('  ✅ fastapi:', fastapi.__version__)"  2>nul || echo   ❌ fastapi: NO INSTALADO
 "!VENV_PYTHON!" -c "import uvicorn; print('  ✅ uvicorn: OK')"                    2>nul || echo   ❌ uvicorn: NO INSTALADO
@@ -235,6 +237,9 @@ echo.
 "!VENV_PYTHON!" -c "import faiss; print('  ✅ faiss-cpu: OK')"                    2>nul || echo   ⚠ faiss-cpu: no disponible
 "!VENV_PYTHON!" -c "import lxml; print('  ✅ lxml: OK')"                         2>nul || echo   ⚠ lxml: no disponible
 "!VENV_PYTHON!" -c "import pywebview; print('  ✅ pywebview: OK')"                2>nul || echo   ⚠ pywebview: no disponible
+"!VENV_PYTHON!" -c "import ctransformers; print('  ✅ ctransformers: OK')"       2>nul || echo   ⚠ ctransformers: no disponible
+"!VENV_PYTHON!" -c "import rapidocr_onnxruntime; print('  ✅ rapidocr: OK')"      2>nul || echo   ⚠ rapidocr: no disponible
+"!VENV_PYTHON!" -c "import kokoro_onnx; print('  ✅ kokoro-onnx: OK')"            2>nul || echo   ⚠ kokoro-onnx: no disponible
 
 echo.
 if exist "%PROJECT_ROOT%\Keys.env" (

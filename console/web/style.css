@@ -815,6 +815,7 @@ body {
     flex-direction: column;
     gap: 14px;
     font-family: var(--font-mono);
+    user-select: text;
 }
 
 /* ── Message Bubbles ────────────────────────────────────────────── */

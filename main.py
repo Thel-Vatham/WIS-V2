@@ -583,28 +583,25 @@ def setup_terminal_trace() -> None:
             trace_logger.info("STEP | %d/%d | text=%s", data.get("step", 0), data.get("max_steps", 0), data.get("text"))
 
         elif evt == "reasoning.prompt":
-            sys_prompt = data.get("system_prompt", "")
             user_msg = data.get("user_message", "")
             model = data.get("model", "")
             history = data.get("history_turns", 0)
             trace_logger.info(
                 "LLM_REQUEST | model=%s | history_turns=%d\n"
-                "--- SYSTEM PROMPT START ---\n%s\n--- SYSTEM PROMPT END ---\n"
                 "--- USER MESSAGE START ---\n%s\n--- USER MESSAGE END ---",
-                model, history, sys_prompt, user_msg,
+                model, history, user_msg,
             )
 
         elif evt == "reasoning.response":
-            raw = data.get("raw_response", "")
             text = data.get("text", "")
             calls = data.get("calls", [])
             model = data.get("model", "")
             trace_logger.info(
-                "LLM_RESPONSE | model=%s\n"
-                "--- RAW RESPONSE START ---\n%s\n--- RAW RESPONSE END ---\n"
+                "LLM_RESPONSE | model=%s | calls=%d\n"
                 "PARSED_TEXT: %s\n"
-                "PARSED_CALLS: %s",
-                model, raw, text, json.dumps(calls, ensure_ascii=False, default=str),
+                "CALLS: %s",
+                model, len(calls), text,
+                json.dumps([c.get("name") for c in calls]) if calls else "None"
             )
 
         elif evt == "pipeline.call_start":
