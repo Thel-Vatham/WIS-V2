@@ -11,9 +11,7 @@ const State = {
     pyapi: null,
 
     // Layout
-    leftW: 290,
     rightW: 320,
-    leftHidden: false,
     rightHidden: false,
 
     // Terminal
@@ -29,7 +27,6 @@ const State = {
 const LAYOUT = {
     MIN_W: 180,
     MAX_W: 520,
-    DEFAULT_LEFT_W: 290,
     DEFAULT_RIGHT_W: 320,
     STORAGE_KEY: "wis-layout-v2",
 };
@@ -51,7 +48,6 @@ function cacheDom() {
     Dom.pillPath = document.getElementById("pill-path");
     Dom.pillWs = document.getElementById("pill-ws");
 
-    Dom.btnToggleLeft = document.getElementById("btn-toggle-left");
     Dom.btnToggleRight = document.getElementById("btn-toggle-right");
     Dom.btnToggleBoth = document.getElementById("btn-toggle-both");
     Dom.btnSecurity = document.getElementById("btn-security");
@@ -62,9 +58,7 @@ function cacheDom() {
     Dom.btnClose = document.getElementById("btn-close");
 
     Dom.workspace = document.getElementById("workspace");
-    Dom.leftSidebar = document.getElementById("left-sidebar");
     Dom.rightSidebar = document.getElementById("right-sidebar");
-    Dom.resizerLeft = document.getElementById("resizer-left");
     Dom.resizerRight = document.getElementById("resizer-right");
 
     Dom.terminalOutput = document.getElementById("terminal-output");
@@ -77,11 +71,6 @@ function cacheDom() {
     Dom.btnUpload = document.getElementById("btn-upload");
     Dom.btnSend = document.getElementById("btn-send");
     Dom.fileInput = document.getElementById("file-input");
-
-    Dom.hardwareList = document.getElementById("hardware-list");
-    Dom.hwCount = document.getElementById("hw-count");
-    Dom.telemetryList = document.getElementById("telemetry-list");
-    Dom.telemetryDot = document.getElementById("telemetry-dot");
 
     Dom.goalList = document.getElementById("goal-list");
     Dom.btnAddGoal = document.getElementById("btn-add-goal");
@@ -109,7 +98,6 @@ function cacheDom() {
     Dom.btnLhCancel = document.getElementById("btn-lh-cancel");
     Dom.btnLhSubmit = document.getElementById("btn-lh-submit");
 
-    Dom.btnCloseLeft = document.getElementById("btn-close-left");
     Dom.btnCloseRight = document.getElementById("btn-close-right");
 }
 
@@ -124,9 +112,7 @@ function clamp(val, min, max) {
 function persistLayout() {
     try {
         localStorage.setItem(LAYOUT.STORAGE_KEY, JSON.stringify({
-            leftW: State.leftW,
             rightW: State.rightW,
-            leftHidden: State.leftHidden,
             rightHidden: State.rightHidden,
         }));
     } catch (_) { }
@@ -140,9 +126,7 @@ function restoreLayout() {
     } catch (_) { }
 
     if (saved) {
-        State.leftW = clamp(saved.leftW ?? LAYOUT.DEFAULT_LEFT_W, LAYOUT.MIN_W, LAYOUT.MAX_W);
         State.rightW = clamp(saved.rightW ?? LAYOUT.DEFAULT_RIGHT_W, LAYOUT.MIN_W, LAYOUT.MAX_W);
-        State.leftHidden = !!saved.leftHidden;
         State.rightHidden = !!saved.rightHidden;
     }
     applyLayout();
@@ -150,44 +134,34 @@ function restoreLayout() {
 
 function applyLayout() {
     const root = document.documentElement;
-    root.style.setProperty("--left-w", State.leftW + "px");
     root.style.setProperty("--right-w", State.rightW + "px");
 
     if (Dom.workspace) {
-        Dom.workspace.classList.toggle("left-hidden", State.leftHidden);
         Dom.workspace.classList.toggle("right-hidden", State.rightHidden);
     }
 
-    if (Dom.btnToggleLeft) {
-        Dom.btnToggleLeft.classList.toggle("off", State.leftHidden);
-        Dom.btnToggleLeft.textContent = State.leftHidden ? "▶ Mostrar Izq" : "◀ Ocultar Izq";
-    }
     if (Dom.btnToggleRight) {
         Dom.btnToggleRight.classList.toggle("off", State.rightHidden);
         Dom.btnToggleRight.textContent = State.rightHidden ? "◀ Mostrar Der" : "Ocultar Der ▶";
     }
 
-    const bothHidden = State.leftHidden && State.rightHidden;
     if (Dom.btnToggleBoth) {
-        Dom.btnToggleBoth.classList.toggle("active", bothHidden);
-        Dom.btnToggleBoth.textContent = bothHidden ? "⛶ Restaurar" : "⛶ Consola 100%";
-        Dom.btnToggleBoth.title = bothHidden
-            ? "Restaurar paneles (Ctrl+\\)"
+        Dom.btnToggleBoth.classList.toggle("active", State.rightHidden);
+        Dom.btnToggleBoth.textContent = State.rightHidden ? "⛶ Restaurar" : "⛶ Consola 100%";
+        Dom.btnToggleBoth.title = State.rightHidden
+            ? "Restaurar panel derecho (Ctrl+\\)"
             : "Consola Completa al 100% (Ctrl+\\)";
     }
 }
 
 function toggleSidebar(side) {
-    if (side === "left") State.leftHidden = !State.leftHidden;
-    else if (side === "right") State.rightHidden = !State.rightHidden;
+    State.rightHidden = !State.rightHidden;
     applyLayout();
     persistLayout();
 }
 
 function toggleBothSidebars() {
-    const bothHidden = State.leftHidden && State.rightHidden;
-    State.leftHidden = !bothHidden;
-    State.rightHidden = !bothHidden;
+    State.rightHidden = !State.rightHidden;
     applyLayout();
     persistLayout();
 }
@@ -195,11 +169,10 @@ function toggleBothSidebars() {
 // ─── Resizer Drag Logic (Draggable Splitters) ─────────────────────
 
 function initResizers() {
-    bindResizer(Dom.resizerLeft, "left");
-    bindResizer(Dom.resizerRight, "right");
+    bindResizer(Dom.resizerRight);
 }
 
-function bindResizer(handle, side) {
+function bindResizer(handle) {
     if (!handle) return;
     let dragging = false;
     let startX = 0;
@@ -211,7 +184,7 @@ function bindResizer(handle, side) {
         if (e.button !== undefined && e.button !== 0) return;
         dragging = true;
         startX = e.clientX;
-        startW = side === "left" ? Dom.leftSidebar.offsetWidth : Dom.rightSidebar.offsetWidth;
+        startW = Dom.rightSidebar ? Dom.rightSidebar.offsetWidth : 320;
         handle.classList.add("dragging");
         Dom.workspace.classList.add("dragging");
         document.body.style.cursor = "col-resize";
@@ -222,18 +195,14 @@ function bindResizer(handle, side) {
     function onMove(e) {
         if (!dragging) return;
         const dx = e.clientX - startX;
-        let w = side === "left" ? startW + dx : startW - dx;
+        let w = startW - dx;
         w = clamp(w, LAYOUT.MIN_W, LAYOUT.MAX_W);
         pendingW = Math.round(w);
 
         if (!rafId) {
             rafId = requestAnimationFrame(() => {
                 rafId = null;
-                if (side === "left") {
-                    document.documentElement.style.setProperty("--left-w", pendingW + "px");
-                } else {
-                    document.documentElement.style.setProperty("--right-w", pendingW + "px");
-                }
+                document.documentElement.style.setProperty("--right-w", pendingW + "px");
             });
         }
     }
@@ -247,19 +216,13 @@ function bindResizer(handle, side) {
         document.body.style.userSelect = "";
         if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
 
-        if (side === "left") State.leftW = pendingW || State.leftW;
-        else State.rightW = pendingW || State.rightW;
+        State.rightW = pendingW || State.rightW;
         persistLayout();
     }
 
     handle.addEventListener("dblclick", () => {
-        if (side === "left") {
-            State.leftW = LAYOUT.DEFAULT_LEFT_W;
-            document.documentElement.style.setProperty("--left-w", LAYOUT.DEFAULT_LEFT_W + "px");
-        } else {
-            State.rightW = LAYOUT.DEFAULT_RIGHT_W;
-            document.documentElement.style.setProperty("--right-w", LAYOUT.DEFAULT_RIGHT_W + "px");
-        }
+        State.rightW = LAYOUT.DEFAULT_RIGHT_W;
+        document.documentElement.style.setProperty("--right-w", LAYOUT.DEFAULT_RIGHT_W + "px");
         persistLayout();
     });
 
@@ -272,10 +235,7 @@ function bindResizer(handle, side) {
 
 function initKeyboardShortcuts() {
     document.addEventListener("keydown", (e) => {
-        if (e.ctrlKey && (e.key === "[" || e.code === "BracketLeft")) {
-            e.preventDefault();
-            toggleSidebar("left");
-        } else if (e.ctrlKey && (e.key === "]" || e.code === "BracketRight")) {
+        if (e.ctrlKey && (e.key === "]" || e.code === "BracketRight")) {
             e.preventDefault();
             toggleSidebar("right");
         } else if (e.ctrlKey && e.key === "\\") {
@@ -626,6 +586,14 @@ function handleBusEvent(event, payload) {
 
     if (event === "reasoning.token_chunk") {
         if (payload.chunk) appendStreamChunk(payload.chunk);
+    } else if (event === "pipeline.input_received") {
+        appendUserMessage(payload.text);
+    } else if (event === "ptt.started") {
+        setThinking(true, "Listening (PTT active)...");
+        if (Dom.btnMic) Dom.btnMic.classList.add("active");
+    } else if (event === "ptt.stopped") {
+        setThinking(true, "Transcribing audio...");
+        if (Dom.btnMic) Dom.btnMic.classList.remove("active");
     } else if (event === "telemetry.data" || event === "telemetry.threshold_triggered") {
         updateTelemetryCard(payload);
     } else if (event === "hardware.device_connected" || event === "hardware.graph_updated") {
@@ -670,7 +638,7 @@ function appendUserMessage(text) {
     el.className = "msg msg-user";
     el.innerHTML = `
         <div class="msg-header">
-            <span class="msg-author">OPERATOR</span>
+            <span class="msg-author"></span>
             <span class="msg-time">${new Date().toLocaleTimeString()}</span>
         </div>
         <div class="msg-bubble">${escapeHtml(text)}</div>
@@ -821,7 +789,8 @@ async function submitPrompt() {
 
     Dom.userInput.value = "";
     Dom.userInput.style.height = "auto";
-    appendUserMessage(text);
+    // appendUserMessage(text); // Renderizado dinámico vía pipeline.input_received
+
     setThinking(true, "Dispatching intent...");
 
     if (State.wsConnected && State.ws && State.ws.readyState === WebSocket.OPEN) {
@@ -919,57 +888,17 @@ async function playTtsAudio(text) {
 // ═══════════════════════════════════════════════════════════════════
 
 async function refreshPanels() {
-    loadHardwareList();
     loadGoals();
     loadLongHorizonTasks();
     loadSecurityMode();
 }
 
 async function loadHardwareList() {
-    try {
-        const res = await fetch("/api/state", { headers: getAuthHeaders() });
-        if (!res.ok) return;
-        const data = await res.json();
-
-        const activeAbilities = data.active_abilities || [];
-        if (Dom.hwCount) Dom.hwCount.textContent = activeAbilities.length;
-
-        if (Dom.hardwareList) {
-            if (activeAbilities.length === 0) {
-                Dom.hardwareList.innerHTML = `<div class="empty-state">No hardware registered</div>`;
-                return;
-            }
-            Dom.hardwareList.innerHTML = activeAbilities.map(name => `
-                <div class="item-card">
-                    <div class="item-hd">
-                        <span class="item-name">${escapeHtml(name)}</span>
-                        <span class="badge">ACTIVE</span>
-                    </div>
-                </div>
-            `).join("");
-        }
-    } catch (_) { }
+    // Hardware graph panel removed from UI
 }
 
 function updateTelemetryCard(data) {
-    if (!Dom.telemetryList) return;
-    const cards = [];
-
-    for (const [k, v] of Object.entries(data)) {
-        if (k.startsWith("_")) continue;
-        cards.push(`
-            <div class="item-card">
-                <div class="item-hd">
-                    <span class="item-name">${escapeHtml(k)}</span>
-                    <span class="item-val">${escapeHtml(String(v))}</span>
-                </div>
-            </div>
-        `);
-    }
-
-    if (cards.length > 0) {
-        Dom.telemetryList.innerHTML = cards.join("");
-    }
+    // Telemetry panel removed from UI
 }
 
 async function loadGoals() {
@@ -1273,10 +1202,8 @@ document.addEventListener("DOMContentLoaded", async () => {
     initModals();
 
     // Toggle button handlers
-    if (Dom.btnToggleLeft) Dom.btnToggleLeft.addEventListener("click", () => toggleSidebar("left"));
     if (Dom.btnToggleRight) Dom.btnToggleRight.addEventListener("click", () => toggleSidebar("right"));
     if (Dom.btnToggleBoth) Dom.btnToggleBoth.addEventListener("click", () => toggleBothSidebars());
-    if (Dom.btnCloseLeft) Dom.btnCloseLeft.addEventListener("click", () => toggleSidebar("left"));
     if (Dom.btnCloseRight) Dom.btnCloseRight.addEventListener("click", () => toggleSidebar("right"));
 
     // Security & TTS buttons

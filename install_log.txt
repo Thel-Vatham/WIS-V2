@@ -1,0 +1,13 @@
+
+ ╔═══════════════════════════════════════════════════════════════╗
+ ║          WIS — WISDOM INTEGRATED SYSTEM v3.0                 ║
+ ║          Instalador Automatico — 100% sin intervencion       ║
+ ╚═══════════════════════════════════════════════════════════════╝
+
+ 📁 Directorio del proyecto: D:\WIS
+
+[1/8] Verificando Visual C++ Redistributable...
+    ✔ Visual C++ Redistributable ya instalado
+
+[2/8] Verificando Python 3.10+...
+& was unexpected at this time.

@@ -346,7 +346,7 @@ class Memory:
         query_vec = self._embedder.embed(query)
         with self._lock:
             rows = self._conn.execute(
-                "SELECT id, user_input, response, embedding, created_at FROM episodic ORDER BY id DESC LIMIT 100"
+                f"SELECT id, user_input, response, embedding, created_at FROM episodic ORDER BY id DESC LIMIT 100 OFFSET {SHORT_TERM_LIMIT}"
             ).fetchall()
 
         total_rows = len(rows)

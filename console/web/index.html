@@ -53,7 +53,6 @@
                 <span class="hud-pill dim" id="pill-path" title="Last cognitive path">—</span>
                 <span class="hud-pill green" id="pill-ws" title="WebSocket">● WS</span>
                 <span class="tb-divider"></span>
-                <button class="tb-btn tb-toggle-btn" id="btn-toggle-left" title="Ocultar / Mostrar Panel Izquierdo (Ctrl+[)">◀ Izq</button>
                 <button class="tb-btn tb-toggle-btn" id="btn-toggle-both" title="Modo Enfoque — Consola Completa 100% (Ctrl+\)">⛶ Consola 100%</button>
                 <button class="tb-btn tb-toggle-btn" id="btn-toggle-right" title="Ocultar / Mostrar Panel Derecho (Ctrl+])">Der ▶</button>
                 <span class="tb-divider"></span>
@@ -68,42 +67,6 @@
 
         <!-- WORKSPACE -->
         <div class="workspace" id="workspace">
-
-            <!-- LEFT SIDEBAR -->
-            <aside class="sidebar left-sidebar" id="left-sidebar">
-                <div class="sidebar-top-bar">
-                    <span class="sidebar-top-title">DISPOSITIVOS & TELEMETRÍA</span>
-                    <button class="mini-btn close-sidebar-btn" id="btn-close-left" title="Ocultar panel izquierdo (Ctrl+[)">✕ Ocultar</button>
-                </div>
-                <section class="panel" data-collapsible>
-                    <div class="panel-hd">
-                        <span class="panel-hd-title">Hardware Graph</span>
-                        <div class="panel-hd-right">
-                            <span class="badge" id="hw-count">0</span>
-                            <span class="chevron">›</span>
-                        </div>
-                    </div>
-                    <div class="panel-body" id="hardware-list">
-                        <div class="empty-state">Scanning devices...</div>
-                    </div>
-                </section>
-
-                <section class="panel flex1" data-collapsible>
-                    <div class="panel-hd">
-                        <span class="panel-hd-title">Telemetry</span>
-                        <div class="panel-hd-right">
-                            <div class="pulse-dot" id="telemetry-dot"></div>
-                            <span class="chevron">›</span>
-                        </div>
-                    </div>
-                    <div class="panel-body" id="telemetry-list">
-                        <div class="empty-state">Awaiting sensor data...</div>
-                    </div>
-                </section>
-            </aside>
-
-            <!-- RESIZER LEFT -->
-            <div class="resizer resizer-left" id="resizer-left" title="Drag to resize · Double-click to reset"></div>
 
             <!-- TERMINAL -->
             <main class="terminal-pane">

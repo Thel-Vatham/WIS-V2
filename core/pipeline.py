@@ -199,25 +199,7 @@ class ActionPipeline:
                 "results": [],
             }
 
-        # Fast Intent Classifier
-        m_open = re.match(r"^(?:abre|inicia|ejecuta|open|launch|start)\s+(?:el|la|program|app)?\s*(.+)$", normalized)
-        if m_open:
-            app_name = m_open.group(1).strip()
-            # Only open reflexively if it is a known system application name or a real file path
-            import os
-            known_apps = {
-                "chrome", "brave", "opera", "edge", "notepad", "calculator", "calc",
-                "word", "excel", "powerpoint", "winword", "powerpnt", "code", "vs code",
-                "spotify", "cmd", "powershell", "terminal", "paint", "mspaint"
-            }
-            # Also check if it's a real file path
-            is_known = app_name.lower() in known_apps or os.path.exists(app_name)
-            if is_known:
-                return {
-                    "response": f"Opening {app_name}...",
-                    "calls": [{"action": "open_application", "app_name": app_name}],
-                    "results": [],
-                }
+
 
         if any(h in normalized for h in ("que hora es", "dime la hora", "dime hora actual")):
             return {
@@ -258,6 +240,10 @@ class ActionPipeline:
                     "who are you", "what are you", "quien eres",
                     "introduce yourself", "your name",
                 ],
+                "open_app": [
+                    "open application", "launch program", "abre la aplicacion",
+                    "inicia el programa", "ejecuta la app", "start app"
+                ],
             }
 
             query_vec = embedder.embed(text)
@@ -288,6 +274,25 @@ class ActionPipeline:
                         "calls": [],
                         "results": [],
                     }
+                if best_intent == "open_app":
+                    import os
+                    known_apps = [
+                        "chrome", "brave", "opera", "edge", "notepad", "calculator", "calc",
+                        "word", "excel", "powerpoint", "winword", "powerpnt", "code", "vs code",
+                        "spotify", "cmd", "powershell", "terminal", "paint", "mspaint"
+                    ]
+                    text_lower = text.lower()
+                    target_app = None
+                    for app in known_apps:
+                        if app in text_lower:
+                            target_app = app
+                            break
+                    if target_app:
+                        return {
+                            "response": f"Opening {target_app}...",
+                            "calls": [{"action": "open_application", "app_name": target_app}],
+                            "results": [],
+                        }
 
         except Exception as e:
             logger.debug(f"pipeline: embedding classifier skipped: {e}")

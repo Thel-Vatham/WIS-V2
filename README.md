@@ -31,9 +31,6 @@
   - Native Windows desktop automation using `pyautogui`, `uiautomation`, and audio control via `pycaw`.
   - Full headless/headed browser control using `Playwright` (`abilities/browser.py`).
 
-- ⚡ **Hardware & IoT Protocol Suite:**
-  - Real-time **Serial / UART** communications (`abilities/serial_comm.py`).
-  - **MQTT** client for telemetry ingestion and IoT trigger evaluation (`abilities/mqtt_comm.py`, `core/telemetry.py`).
 
 - 🛠️ **Self-Extension & Dynamic Abilities:**
   - Meta-programming ability builder (`abilities/builder.py`) and integration discovery (`abilities/discovery.py`).
@@ -57,9 +54,7 @@ WIS/
 │   ├── file_manager.py     # Native filesystem operations
 │   ├── knowledge.py        # Knowledge base & document query
 │   ├── listen.py           # Speech-to-Text (STT) engine
-│   ├── mqtt_comm.py        # MQTT IoT client
 │   ├── registry.py         # Abilities registry & dispatcher
-│   ├── serial_comm.py      # Serial/UART communication
 │   ├── system.py           # System diagnostics & execution
 │   ├── vision.py           # Computer vision & screen analysis
 │   ├── voice.py            # Neural TTS engine (Kokoro ONNX)

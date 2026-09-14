@@ -122,7 +122,7 @@ class AdvancedDesktopAbility(Ability):
 
     @property
     def name(self) -> str:
-        return "advanced_desktop"
+        return "desktop"
 
     @property
     def description(self) -> str:

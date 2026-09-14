@@ -34,7 +34,6 @@
 
     --titlebar-h: 38px;
     --resizer-w: 6px;
-    --left-w: 290px;
     --right-w: 320px;
 
     --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
@@ -452,11 +451,6 @@ body {
                 opacity 0.2s ease;
 }
 
-.left-sidebar {
-    width: var(--left-w);
-    border-right: 1px solid var(--border-soft);
-}
-
 .right-sidebar {
     width: var(--right-w);
     border-left: 1px solid var(--border-soft);
@@ -520,15 +514,6 @@ body {
 }
 
 /* ── Hidden states for Full-Width Console (Instant 100% view) ───── */
-.workspace.left-hidden .left-sidebar,
-.workspace.left-hidden #left-sidebar {
-    display: none !important;
-    width: 0 !important;
-    min-width: 0 !important;
-    max-width: 0 !important;
-    visibility: hidden !important;
-}
-
 .workspace.right-hidden .right-sidebar,
 .workspace.right-hidden #right-sidebar {
     display: none !important;
@@ -538,8 +523,6 @@ body {
     visibility: hidden !important;
 }
 
-.workspace.left-hidden .resizer-left,
-.workspace.left-hidden #resizer-left,
 .workspace.right-hidden .resizer-right,
 .workspace.right-hidden #resizer-right {
     display: none !important;

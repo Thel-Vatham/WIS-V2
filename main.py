@@ -371,17 +371,10 @@ def _register_default_abilities(registry: AbilityRegistry, settings: dict, hw_va
 
     # PC / OS Developer Tools
     try:
-        from abilities.pc.desktop_ability import DesktopAbility
-        from abilities.pc.filesystem_ability import FileSystemAbility, ShellAbility
         from abilities.pc.code_ability import CodeAbility
-        from abilities.pc.screen_ability import ScreenAbility
         from abilities.pc.advanced_desktop_ability import AdvancedDesktopAbility
         
-        registry.register(DesktopAbility())
-        registry.register(FileSystemAbility())
-        registry.register(ShellAbility())
         registry.register(CodeAbility())
-        registry.register(ScreenAbility())
         registry.register(AdvancedDesktopAbility())
     except Exception as e:
         logger.warning(f"PC Abilities not loaded: {e}")
@@ -393,12 +386,7 @@ def _register_default_abilities(registry: AbilityRegistry, settings: dict, hw_va
     except Exception as e:
         logger.warning(f"BrowserAbility not loaded: {e}")
 
-    # Desktop (Win64 UIA)
-    try:
-        from abilities.desktop import DesktopAbility
-        registry.register(DesktopAbility())
-    except Exception as e:
-        logger.warning(f"DesktopAbility not loaded: {e}")
+
 
     # Web Search (multi-provider)
     try:
@@ -685,6 +673,15 @@ def main() -> None:
     cors_origins = server_cfg.get("cors_origins") or []
 
     from console.server import WISCoreContainer, run_server, start_server_thread
+
+    # --- PTT Service ---
+    try:
+        from core.ptt import PTTService
+        ptt_service = PTTService(host=host, port=port, token=console_token, hotkey="f9")
+        ptt_service.start()
+        atexit.register(ptt_service.stop)
+    except Exception as e:
+        logger.warning(f"Could not start PTT Service: {e}")
 
     container = WISCoreContainer(
         praxis=core["praxis"],

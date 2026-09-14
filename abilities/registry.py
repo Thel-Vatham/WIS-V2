@@ -295,11 +295,7 @@ class AbilityRegistry:
             registry.register(BrowserAbility())
         except Exception:
             pass
-        try:
-            from .desktop import DesktopAbility
-            registry.register(DesktopAbility())
-        except Exception:
-            pass
+
         try:
             from .web_search import WebSearchAbility
             registry.register(WebSearchAbility())
@@ -320,18 +316,6 @@ class AbilityRegistry:
         except Exception as e:
             logger.warning("No se pudo cargar DiscoveryAbility: %s", e)
 
-        # Protocolos Hardware Nativos (Serial/UART + MQTT)
-        try:
-            from .serial_comm import SerialCommAbility
-            registry.register(SerialCommAbility())
-        except Exception as e:
-            logger.warning("No se pudo cargar SerialCommAbility: %s", e)
-
-        try:
-            from .mqtt_comm import MQTTCommAbility
-            registry.register(MQTTCommAbility())
-        except Exception as e:
-            logger.warning("No se pudo cargar MQTTCommAbility: %s", e)
 
         # Cargar habilidades custom generadas dinamicamente (robots, IoT, etc.)
         registry.load_custom_directory()

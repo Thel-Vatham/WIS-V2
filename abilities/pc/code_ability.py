@@ -27,11 +27,6 @@ class CodeAbility(Ability):
     def get_schema(self) -> list:
         return [
             {
-                "action": "run_python_code",
-                "description": "Execute arbitrary python code locally.",
-                "params": {"code": "Python code block to execute"}
-            },
-            {
                 "action": "ast_inspect_symbols",
                 "description": "Inspect classes, methods, and functions in a python file.",
                 "params": {"path": "File path to inspect"}
@@ -51,12 +46,7 @@ class CodeAbility(Ability):
 
     async def execute(self, action: str, params: dict) -> dict:
         try:
-            if action == "run_python_code":
-                code = params.get("code", "")
-                result = run_python_code(code)
-                return {"success": True, "data": result, "message": "Code executed"}
-                
-            elif action == "ast_inspect_symbols":
+            if action == "ast_inspect_symbols":
                 path = params.get("path", "")
                 result = ast_inspect_symbols(path)
                 if "error" in result:
