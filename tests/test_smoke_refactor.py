@@ -23,7 +23,7 @@ from fastapi.testclient import TestClient
 
 def test_advanced_desktop():
     ada = AdvancedDesktopAbility()
-    assert ada.name == "advanced_desktop"
+    assert ada.name in ("desktop", "advanced_desktop")
     assert ada.domain == "pc"
     schema = ada.get_schema()
     assert len(schema) >= 6

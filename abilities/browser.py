@@ -156,6 +156,7 @@ class _BrowserManager:
             user_data_dir=str(profile), headless=headless,
             viewport={"width": 1280, "height": 900},
             ignore_https_errors=True, user_agent=ua,
+            ignore_default_args=["--mute-audio"],
             args=["--disable-blink-features=AutomationControlled"],
         )
         self.context.add_init_script(

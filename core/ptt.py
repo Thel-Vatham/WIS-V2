@@ -65,6 +65,9 @@ class PTTService:
                             frames.append(data)
                     except Exception as exc:
                         logger.error("Audio recording error: %s", exc)
+                        # Evitar spam de logs si falla mientras se mantiene presionada la tecla
+                        while keyboard.is_pressed(self.hotkey) and not self._stop_event.is_set():
+                            time.sleep(0.1)
                     finally:
                         if stream:
                             stream.stop_stream()

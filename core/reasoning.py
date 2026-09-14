@@ -46,12 +46,13 @@ class ReasoningEngine:
         user_input: str,
         sensor_data: Optional[Dict[str, Any]] = None,
         tools: Optional[List[Dict[str, Any]]] = None,
+        session_id: str = "default",
     ) -> Dict[str, Any]:
         context: str = self._compile_context(user_input)
         system_prompt: str = self._build_system_prompt(context, tools=tools)
 
         messages: List[Dict[str, Any]] = [{"role": "system", "content": system_prompt}]
-        messages.extend(self.memory.get_history())
+        messages.extend(self.memory.get_history(session_id))
         user_content = self._format_user_message(user_input, sensor_data)
         messages.append({"role": "user", "content": user_content})
 
@@ -62,7 +63,8 @@ class ReasoningEngine:
             "system_prompt": system_prompt,
             "user_message": user_content,
             "model": model,
-            "history_turns": len(self.memory.get_history()),
+            "history_turns": len(self.memory.get_history(session_id)),
+            "session_id": session_id,
         })
 
         # Convertimos el esquema interno de habilidades a formato API estándar
@@ -81,20 +83,10 @@ class ReasoningEngine:
                 # Stream each token chunk to the trace
                 event_bus.emit("reasoning.token_chunk", {"chunk": chunk})
         except Exception as e:
-            logger.warning(f"reasoning: API LLM failed ({e}). Falling back to LocalLLMClient.")
+            logger.warning(f"reasoning: API LLM failed ({e}). Entering Offline Mode.")
             event_bus.emit("reasoning.token_chunk", {"chunk": "[Offline Mode] "})
-            
-            # Local fallback — usa un prompt COMPACTO (el system_prompt completo
-            # con las schemas de tools excede el contexto del modelo local).
-            if self.router.local_client:
-                local_prompt = self._build_local_fallback_prompt(user_input, sensor_data)
-                try:
-                    local_res = await self.router.local_client.generate(local_prompt, max_tokens=200)
-                    if local_res:
-                        raw_chunks.append(local_res)
-                        event_bus.emit("reasoning.token_chunk", {"chunk": local_res})
-                except Exception as local_e:
-                    logger.error(f"reasoning: Local LLM also failed: {local_e}")
+            # No local LLM fallback. Pipeline will handle offline mode.
+            raw_chunks.append("[Offline Mode] ")
 
         raw_response: str = "".join(raw_chunks)
         text, calls = self._split_text_and_calls(raw_response)
@@ -478,53 +470,6 @@ class ReasoningEngine:
         except Exception:
             return text
 
-    def _build_local_fallback_prompt(
-        self,
-        user_input: str,
-        sensor_data: Optional[Dict[str, Any]],
-        max_history_turns: int = 4,
-    ) -> str:
-        """Construye un prompt COMPACTO para el LLM local (TinyLlama, ctx ~2048).
-
-        El system_prompt normal incluye las schemas completas de tools, que
-        solas suman miles de tokens y desbordan el contexto del modelo local
-        (causando 'Number of tokens exceeded maximum context length'). Aqui se
-        resume lo esencial: identidad, reglas, un minimo de historial y la
-        pregunta del usuario.
-        """
-        import datetime
-        now = datetime.datetime.now()
-        now_str = now.strftime("%A, %B %d, %Y, %H:%M:%S")
-
-        name = self.identity.get_name()
-        desc = self.identity.get_description() or "AI assistant"
-
-        parts = [
-            f"You are {name}. {desc}",
-            f"Current date/time: {now_str}",
-            "Rules:",
-            "- Respond in clear, natural English, regardless of the user's language.",
-            "- Be direct, concise, helpful, and honest.",
-            "- Never invent facts, file paths, or system states you cannot verify.",
-        ]
-
-        # Últimas N vueltas de historial (no todo, para no desbordar).
-        history = self.memory.get_history()
-        if history:
-            recent = history[-max_history_turns * 2:]  # user+assistant por turno
-            hist_lines = []
-            for msg in recent:
-                role = msg.get("role", "")
-                content = (msg.get("content") or "")[:200]
-                if role == "user":
-                    hist_lines.append(f"User: {content}")
-                elif role == "assistant":
-                    hist_lines.append(f"Assistant: {content}")
-            if hist_lines:
-                parts.append("Recent conversation:\n" + "\n".join(hist_lines[-6:]))
-
-        user_msg = self._format_user_message(user_input, sensor_data)
-        return "\n".join(parts) + f"\n\nUser: {user_msg}\nAssistant: "
 
     def _parse_dsml_calls(self, content: str) -> List[Dict[str, Any]]:
         """Parsea llamadas de herramientas formateadas con la sintaxis DSML de Avrora."""

@@ -22,6 +22,10 @@ const State = {
 
     // Pending action requiring approval
     pendingApproval: null,
+
+    // TTS Control
+    currentAudio: null,
+    ttsInterrupted: false,
 };
 
 const LAYOUT = {
@@ -61,16 +65,13 @@ function cacheDom() {
     Dom.rightSidebar = document.getElementById("right-sidebar");
     Dom.resizerRight = document.getElementById("resizer-right");
 
-    Dom.terminalOutput = document.getElementById("terminal-output");
-    Dom.thinkingRow = document.getElementById("thinking-row");
-    Dom.thinkingLabel = document.getElementById("thinking-label");
-    Dom.btnCancel = document.getElementById("btn-cancel");
-
-    Dom.userInput = document.getElementById("user-input");
-    Dom.btnMic = document.getElementById("btn-mic");
-    Dom.btnUpload = document.getElementById("btn-upload");
-    Dom.btnSend = document.getElementById("btn-send");
-    Dom.fileInput = document.getElementById("file-input");
+    // Initialize Terminal Manager
+    window.parseMarkdown = formatMarkdown;
+    window.terminalManager = new TerminalManager();
+    window.terminalManager.createTerminal(); // Initial terminal
+    
+    // Fallback file input if needed globally
+    Dom.fileInput = document.getElementById("global-file-input");
 
     Dom.goalList = document.getElementById("goal-list");
     Dom.btnAddGoal = document.getElementById("btn-add-goal");
@@ -561,20 +562,20 @@ function onWsError() {
 function handleWsMessage(data) {
     if (data.type === "status") {
         if (data.state === "thinking") {
-            setThinking(true, data.label || "WIS is reasoning...");
+            setThinking(true, data.label || "WIS is reasoning...", data.session_id);
         } else if (data.state === "done") {
-            setThinking(false);
+            setThinking(false, "", data.session_id);
             State.currentStreamMsg = null;
         } else if (data.state === "error") {
-            setThinking(false);
-            appendSystemMessage("Error: " + (data.error || "Unknown"));
+            setThinking(false, "", data.session_id);
+            appendSystemMessage("Error: " + (data.error || "Unknown"), data.session_id);
         }
     } else if (data.type === "chunk") {
-        setThinking(false);
+        setThinking(false, "", data.session_id);
         appendStreamChunk(data.text || "");
     } else if (data.type === "response") {
-        setThinking(false);
-        renderFullResponse(data);
+        setThinking(false, "", data.session_id);
+        // renderFullResponse(data);
         State.currentStreamMsg = null;
     } else if (data.type === "event_bus") {
         handleBusEvent(data.event, data.data || {});
@@ -584,16 +585,34 @@ function handleWsMessage(data) {
 function handleBusEvent(event, payload) {
     addTraceEntry(event, payload);
 
+    if (event === "terminal.spawn_goal") {
+        const sid = payload.session_id || window.terminalManager.generateId();
+        const term = window.terminalManager.createTerminal(sid);
+        term.appendSystemMessage("--- New Goal Spawned ---");
+        return;
+    }
+
+    // Try to route to specific terminal if session_id is provided, otherwise fallback to active
+    let targetTerm = null;
+    if (payload.session_id) {
+        targetTerm = window.terminalManager.getTerminal(payload.session_id);
+    }
+    if (!targetTerm) {
+        targetTerm = window.terminalManager.getActiveTerminal();
+    }
+
     if (event === "reasoning.token_chunk") {
-        if (payload.chunk) appendStreamChunk(payload.chunk);
+        // Stream chunk rendering is currently not implemented for multi-terminal via WS, 
+        // as REST SSE is used. We ignore it here or implement stream chunk routing later.
     } else if (event === "pipeline.input_received") {
-        appendUserMessage(payload.text);
+        stopTtsAudio();
+        // Do not appendUserMessage here because sendChatRequest already does it instantly.
+        // This avoids duplication and blocking issues if WS is delayed.
     } else if (event === "ptt.started") {
-        setThinking(true, "Listening (PTT active)...");
-        if (Dom.btnMic) Dom.btnMic.classList.add("active");
+        stopTtsAudio();
+        if (targetTerm) targetTerm.setThinking(true, "Listening (PTT active)...");
     } else if (event === "ptt.stopped") {
-        setThinking(true, "Transcribing audio...");
-        if (Dom.btnMic) Dom.btnMic.classList.remove("active");
+        if (targetTerm) targetTerm.setThinking(true, "Transcribing audio...");
     } else if (event === "telemetry.data" || event === "telemetry.threshold_triggered") {
         updateTelemetryCard(payload);
     } else if (event === "hardware.device_connected" || event === "hardware.graph_updated") {
@@ -622,37 +641,31 @@ function handleBusEvent(event, payload) {
 // CHAT & TERMINAL RENDERING
 // ═══════════════════════════════════════════════════════════════════
 
-function setThinking(active, label = "WIS is reasoning...") {
+function setThinking(active, label = "WIS is reasoning...", sessionId = null) {
+    // Legacy support for global thinking state (e.g. voice mic active)
     State.isThinking = active;
-    if (Dom.thinkingRow) {
-        Dom.thinkingRow.classList.toggle("hidden", !active);
-        if (Dom.thinkingLabel) Dom.thinkingLabel.textContent = label;
-    }
     if (Dom.wisOrb) {
         Dom.wisOrb.className = active ? "wis-orb thinking" : "wis-orb";
     }
+    
+    let term = null;
+    if (sessionId) {
+        term = window.terminalManager.getTerminal(sessionId);
+    }
+    if (!term) {
+        term = window.terminalManager.getActiveTerminal();
+    }
+    if (term) term.setThinking(active, label);
 }
 
-function appendUserMessage(text) {
-    const el = document.createElement("div");
-    el.className = "msg msg-user";
-    el.innerHTML = `
-        <div class="msg-header">
-            <span class="msg-author"></span>
-            <span class="msg-time">${new Date().toLocaleTimeString()}</span>
-        </div>
-        <div class="msg-bubble">${escapeHtml(text)}</div>
-    `;
-    Dom.terminalOutput.appendChild(el);
-    scrollTerminalToBottom();
+function appendUserMessage(text, sessionId = null) {
+    let term = sessionId ? window.terminalManager.getTerminal(sessionId) : window.terminalManager.getActiveTerminal();
+    if (term) term.appendUserMessage(text);
 }
 
-function appendSystemMessage(text) {
-    const el = document.createElement("div");
-    el.className = "msg msg-system";
-    el.textContent = text;
-    Dom.terminalOutput.appendChild(el);
-    scrollTerminalToBottom();
+function appendSystemMessage(text, sessionId = null) {
+    let term = sessionId ? window.terminalManager.getTerminal(sessionId) : window.terminalManager.getActiveTerminal();
+    if (term) term.appendSystemMessage(text);
 }
 
 function appendStreamChunk(chunk) {
@@ -732,20 +745,20 @@ function renderCallsInBubble(bubble, calls) {
         const args = JSON.stringify(call.arguments || call.params || {}, null, 2);
 
         card.innerHTML = `
-            <div class="tool-card-hd">
-                <span class="tool-name">⚡ ${escapeHtml(fnName)}</span>
-                <span class="tool-status success">COMPLETED</span>
-            </div>
-            <div class="tool-body">${escapeHtml(args)}</div>
+            <details>
+                <summary class="tool-card-hd" style="cursor: pointer; list-style: none;">
+                    <span class="tool-name">⚡ ${escapeHtml(fnName)}</span>
+                    <span class="tool-status success">COMPLETED</span>
+                </summary>
+                <div class="tool-body" style="margin-top: 8px;">${escapeHtml(args)}</div>
+            </details>
         `;
         bubble.appendChild(card);
     });
 }
 
 function scrollTerminalToBottom() {
-    if (Dom.terminalOutput) {
-        Dom.terminalOutput.scrollTop = Dom.terminalOutput.scrollHeight;
-    }
+    // Handled by TerminalInstance
 }
 
 function escapeHtml(str) {
@@ -783,41 +796,91 @@ function formatMarkdown(src) {
 
 // ─── Input Submission ─────────────────────────────────────────────
 
-async function submitPrompt() {
-    const text = Dom.userInput.value.trim();
-    if (!text || State.isThinking) return;
-
-    Dom.userInput.value = "";
-    Dom.userInput.style.height = "auto";
-    // appendUserMessage(text); // Renderizado dinámico vía pipeline.input_received
-
-    setThinking(true, "Dispatching intent...");
-
-    if (State.wsConnected && State.ws && State.ws.readyState === WebSocket.OPEN) {
-        State.ws.send(JSON.stringify({ type: "message", text: text }));
-    } else {
-        // Fallback REST POST /api/chat
-        try {
-            const res = await fetch("/api/chat", {
-                method: "POST",
-                headers: getAuthHeaders(),
-                body: JSON.stringify({ message: text }),
-            });
-            const data = await res.json();
-            setThinking(false);
-            renderFullResponse(data);
-        } catch (e) {
-            setThinking(false);
-            appendSystemMessage("REST Chat Error: " + e.message);
+window.sendChatRequest = async function(text, terminalInstance) {
+    if (!text || terminalInstance.isThinking) return;
+    
+    stopTtsAudio();
+    terminalInstance.appendUserMessage(text); 
+    terminalInstance.setThinking(true, "Dispatching intent...");
+    
+    // Setup AbortController for cancel button
+    terminalInstance.abortController = new AbortController();
+    
+    try {
+        const res = await fetch("/api/chat", {
+            method: "POST",
+            headers: getAuthHeaders(),
+            body: JSON.stringify({ message: text, session_id: terminalInstance.sessionId }),
+            signal: terminalInstance.abortController.signal
+        });
+        
+        // If aborted during fetch
+        if (!terminalInstance.abortController) return;
+        terminalInstance.abortController = null;
+        
+        const data = await res.json();
+        terminalInstance.setThinking(false);
+        
+        // Handle goal spawn event explicitly if path is goal
+        if (data.path_used === "goal") {
+            // terminal.spawn_goal event will be triggered via event bus or we can do it directly
+            terminalInstance.appendSystemMessage("Goal Dispatched.");
         }
+        
+        if (data.response) {
+            terminalInstance.appendAssistantMessage(data.response);
+            if (State.ttsEnabled) {
+                playTtsStream(data.response);
+            }
+        }
+        
+        // Render tool calls
+        if (data.calls && data.calls.length > 0) {
+            let toolsHtml = '<div class="msg-tools-box">';
+            for (let i = 0; i < data.calls.length; i++) {
+                const call = data.calls[i];
+                const resObj = data.results && data.results[i] ? data.results[i] : { ok: true };
+                const icon = resObj.ok ? "✓" : "✗";
+                const cname = resObj.ok ? "success" : "danger";
+                
+                let detailsStr = "";
+                try {
+                    const argCopy = { ...call };
+                    delete argCopy.action;
+                    detailsStr = JSON.stringify(argCopy);
+                } catch(e) {}
+                
+                toolsHtml += `<div class="msg-tool-item">
+                    <span class="tool-icon ${cname}">${icon}</span>
+                    <span class="tool-action">${call.action}</span>
+                    <span class="tool-args">${escapeHtml(detailsStr)}</span>
+                </div>`;
+            }
+            toolsHtml += '</div>';
+            
+            const msg = document.createElement("div");
+            msg.className = "msg msg-wis";
+            msg.innerHTML = toolsHtml;
+            terminalInstance.output.appendChild(msg);
+            terminalInstance.scrollToBottom();
+        }
+    } catch(e) {
+        if (e.name === 'AbortError') {
+            // Handled by cancel button
+            return;
+        }
+        terminalInstance.setThinking(false);
+        terminalInstance.appendSystemMessage("REST Chat Error: " + e.message);
     }
 }
 
 // ─── Voice Input, Uploads & TTS ───────────────────────────────────
 
-async function startVoiceInput() {
-    if (Dom.btnMic) Dom.btnMic.classList.add("active");
-    appendSystemMessage("🎙 Listening to hardware microphone (5s)...");
+window.startVoiceInput = async function() {
+    const term = window.terminalManager.getActiveTerminal();
+    if (!term) return;
+    
+    term.appendSystemMessage("🎙 Listening to hardware microphone (5s)...");
 
     try {
         const res = await fetch("/api/listen", {
@@ -825,23 +888,22 @@ async function startVoiceInput() {
             headers: getAuthHeaders(),
         });
         const data = await res.json();
-        if (Dom.btnMic) Dom.btnMic.classList.remove("active");
 
         if (data.transcribed_text) {
-            appendUserMessage(data.transcribed_text);
-            renderFullResponse(data);
+            window.sendChatRequest(data.transcribed_text, term);
         } else {
-            appendSystemMessage(data.message || "No speech detected.");
+            term.appendSystemMessage(data.message || "No speech detected.");
         }
     } catch (e) {
-        if (Dom.btnMic) Dom.btnMic.classList.remove("active");
-        appendSystemMessage("Voice input error: " + e.message);
+        term.appendSystemMessage("Voice input error: " + e.message);
     }
 }
 
 async function uploadFile(file) {
-    if (!file) return;
-    appendSystemMessage(`📎 Uploading '${file.name}'...`);
+    const term = window.terminalManager.getActiveTerminal();
+    if (!file || !term) return;
+    
+    term.appendSystemMessage(`📎 Uploading '${file.name}'...`);
 
     const formData = new FormData();
     formData.append("file", file);
@@ -856,30 +918,74 @@ async function uploadFile(file) {
         });
         const data = await res.json();
         if (data.success) {
-            appendSystemMessage(`File saved: ${data.path}`);
-            // Inform model
-            Dom.userInput.value = `Attached file: ${data.path} (${data.filename})`;
-            Dom.userInput.focus();
+            term.appendSystemMessage(`File saved: ${data.path}`);
+            // Inform model directly via chat
+            window.sendChatRequest(`Attached file: ${data.path} (${data.filename})`, term);
         } else {
-            appendSystemMessage(`Upload failed: ${data.error || "Unknown"}`);
+            term.appendSystemMessage(`Upload failed: ${data.error || "Unknown"}`);
         }
     } catch (e) {
-        appendSystemMessage(`Upload failed: ${e.message}`);
+        term.appendSystemMessage(`Upload failed: ${e.message}`);
+    }
+}
+
+async function fetchTtsBlob(sentence) {
+    try {
+        const res = await fetch("/api/tts", {
+            method: "POST",
+            headers: getAuthHeaders(),
+            body: JSON.stringify({ text: sentence }),
+        });
+        if (res.ok) return await res.blob();
+    } catch (_) { }
+    return null;
+}
+
+function stopTtsAudio() {
+    State.ttsInterrupted = true;
+    if (State.currentAudio) {
+        State.currentAudio.pause();
+        State.currentAudio.currentTime = 0;
+        State.currentAudio = null;
     }
 }
 
 async function playTtsAudio(text) {
     try {
-        const res = await fetch("/api/tts", {
-            method: "POST",
-            headers: getAuthHeaders(),
-            body: JSON.stringify({ text: text.slice(0, 400) }),
-        });
-        if (!res.ok) return;
-        const blob = await res.blob();
-        const url = URL.createObjectURL(blob);
-        const audio = new Audio(url);
-        audio.play().catch(() => { });
+        State.ttsInterrupted = false;
+
+        // WIS Rule: direct and concise. Only read the first relevant chunk (1 or 2 sentences max)
+        let sentences = (text.match(/[^.!?\n]+(?:[.!?\n]+|$)/g) || [text])
+            .map(s => s.trim()).filter(Boolean);
+        
+        if (sentences.length === 0) return;
+        
+        // Truncate to first 2 sentences for brevity if the message is long
+        sentences = sentences.slice(0, 2);
+        
+        let nextBlobPromise = fetchTtsBlob(sentences[0]);
+        
+        for (let i = 0; i < sentences.length; i++) {
+            if (State.ttsInterrupted) break;
+
+            const blob = await nextBlobPromise;
+            
+            if (i + 1 < sentences.length && !State.ttsInterrupted) {
+                nextBlobPromise = fetchTtsBlob(sentences[i+1]);
+            }
+            
+            if (blob && !State.ttsInterrupted) {
+                const url = URL.createObjectURL(blob);
+                const audio = new Audio(url);
+                State.currentAudio = audio;
+                
+                await new Promise(resolve => {
+                    audio.onended = () => { State.currentAudio = null; resolve(); };
+                    audio.onerror = () => { State.currentAudio = null; resolve(); };
+                    audio.play().catch(resolve);
+                });
+            }
+        }
     } catch (_) { }
 }
 
@@ -1218,38 +1324,18 @@ document.addEventListener("DOMContentLoaded", async () => {
         });
     }
 
-    // Input handlers
-    if (Dom.btnSend) Dom.btnSend.addEventListener("click", submitPrompt);
-    if (Dom.userInput) {
-        Dom.userInput.addEventListener("keydown", (e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                submitPrompt();
-            }
-        });
-        Dom.userInput.addEventListener("input", () => {
-            Dom.userInput.style.height = "auto";
-            Dom.userInput.style.height = Math.min(120, Dom.userInput.scrollHeight) + "px";
-        });
-    }
+    // Input handlers are now managed by TerminalManager per instance
 
-    // Voice & Upload
-    if (Dom.btnMic) Dom.btnMic.addEventListener("click", startVoiceInput);
-    if (Dom.btnUpload && Dom.fileInput) {
-        Dom.btnUpload.addEventListener("click", () => Dom.fileInput.click());
+    // Global File Upload Hook
+    if (Dom.fileInput) {
         Dom.fileInput.addEventListener("change", (e) => {
             if (e.target.files && e.target.files[0]) {
                 uploadFile(e.target.files[0]);
             }
         });
-    }
-
-    // Cancel reasoning
-    if (Dom.btnCancel) {
-        Dom.btnCancel.addEventListener("click", () => {
-            setThinking(false);
-            appendSystemMessage("Reasoning pipeline cancelled by operator.");
-        });
+        window.triggerGlobalFileUpload = function() {
+            Dom.fileInput.click();
+        };
     }
 
     // Connect & boot

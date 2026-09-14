@@ -155,13 +155,21 @@ class Memory:
             self._db_path, check_same_thread=False
         )
         self._lock = threading.RLock()
-        self._short_term: Deque[Dict[str, Any]] = deque(maxlen=SHORT_TERM_LIMIT)
+        self._short_term: Dict[str, Deque[Dict[str, Any]]] = {}
         self._embedder: _Embedder = embedder or _Embedder()
 
         self._ensure_schema()
-        self._load_recent_history()
+        self._get_session_deque("default") # Initialize default session and load disk history
+        
+    def _get_session_deque(self, session_id: str) -> Deque[Dict[str, Any]]:
+        with self._lock:
+            if session_id not in self._short_term:
+                self._short_term[session_id] = deque(maxlen=SHORT_TERM_LIMIT)
+                if session_id == "default":
+                    self._load_recent_history(session_id)
+            return self._short_term[session_id]
 
-    def _load_recent_history(self) -> None:
+    def _load_recent_history(self, session_id: str) -> None:
         """Carga los últimos SHORT_TERM_LIMIT turnos conversacionales desde la tabla episodic
         de la base de datos al deque de RAM, evitando la amnesia al reiniciar WIS."""
         try:
@@ -171,8 +179,9 @@ class Memory:
                     (SHORT_TERM_LIMIT,)
                 )
                 rows = cur.fetchall()
+                q = self._short_term[session_id]
                 for user_input, response, created_at in reversed(rows):
-                    self._short_term.append({
+                    q.append({
                         "user": user_input,
                         "response": response,
                         "timestamp": created_at
@@ -218,17 +227,18 @@ class Memory:
             self._conn.commit()
 
     # --- Short-term ---
-    def get_history(self) -> List[Dict[str, Any]]:
+    def get_history(self, session_id: str = "default") -> List[Dict[str, Any]]:
         messages: List[Dict[str, Any]] = []
-        for turn in list(self._short_term):
+        for turn in list(self._get_session_deque(session_id)):
             messages.append({"role": "user", "content": turn.get("user", "")})
             messages.append({"role": "assistant", "content": turn.get("response", "")})
         return messages
 
-    async def compress_history(self, local_client: Any) -> None:
+    async def compress_history(self, local_client: Any, session_id: str = "default") -> None:
         """Comprime el historial corto usando el LLM local para ahorrar contexto."""
         with self._lock:
-            if len(self._short_term) < SHORT_TERM_LIMIT:
+            q = self._get_session_deque(session_id)
+            if len(q) < SHORT_TERM_LIMIT:
                 return
             
             # Extrae los turnos mas antiguos (max 6). Limitar la cantidad y la
@@ -237,8 +247,8 @@ class Memory:
             # ctransformers que cerraba WIS de golpe.
             to_compress = []
             for _ in range(6):
-                if self._short_term:
-                    to_compress.append(self._short_term.popleft())
+                if q:
+                    to_compress.append(q.popleft())
                     
         if not to_compress:
             return
@@ -260,7 +270,8 @@ class Memory:
                 from datetime import datetime
                 now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 with self._lock:
-                    self._short_term.appendleft({
+                    q = self._get_session_deque(session_id)
+                    q.appendleft({
                         "user": "[System History Compression]",
                         "response": summary.strip(),
                         "timestamp": now_str
@@ -314,14 +325,14 @@ class Memory:
         return [f"{s} {r} {o}" for (s, r, o, _c) in rows]
 
     # --- Episodic ---
-    def remember(self, user_input: str, response: str) -> None:
+    def remember(self, user_input: str, response: str, session_id: str = "default") -> None:
         user_input = str(user_input or "")
         response = str(response or "")
 
         from datetime import datetime
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        self._short_term.append({"user": user_input, "response": response, "timestamp": now_str})
+        self._get_session_deque(session_id).append({"user": user_input, "response": response, "timestamp": now_str})
 
         if not user_input.strip():
             return

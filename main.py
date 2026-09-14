@@ -204,12 +204,6 @@ def build_core(settings: dict) -> dict:
     vault = SkillMemory(db_path=db_path)
     logger.info(f"SkillMemory ready (healthy: {vault.stats().get('healthy', 0)} skills)")
 
-    # --- Local CPU LLM Engine ---
-    from core.llm_client import LocalLLMClient
-    local_nexus = LocalLLMClient()
-    threading.Thread(target=local_nexus.ensure_model, daemon=True).start()
-    logger.info("Local CPU LLM Engine initialized (models/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf)")
-
     # --- LLM Client ---
     nexus = LLMClient(
         base_url=llm_cfg.get("base_url", "https://api.deepseek.com"),
@@ -219,7 +213,6 @@ def build_core(settings: dict) -> dict:
     router = ModelRouter(
         fast_model=llm_cfg.get("model", "deepseek-chat"),
         strong_model=llm_cfg.get("fallback_model", "deepseek-chat"),
-        local_client=local_nexus,
     )
     logger.info(f"LLMClient ready (model: {llm_cfg.get('model', 'deepseek-chat')})")
 

@@ -126,6 +126,7 @@ class ActionPipeline:
         text: str,
         sensor_data: Optional[Dict[str, Any]] = None,
         tools: Optional[List[Dict[str, Any]]] = None,
+        session_id: str = "default",
     ) -> Dict[str, Any]:
         text = (text or "").strip()
         if not text:
@@ -141,37 +142,35 @@ class ActionPipeline:
             if hasattr(self.abilities, "get_schemas"):
                 tools = self.abilities.get_schemas()
 
-        event_bus.emit("pipeline.input_received", {"text": text})
+        event_bus.emit("pipeline.input_received", {"text": text, "session_id": session_id})
         self._cancel_event = asyncio.Event()
 
-        # --- Path: Known (SkillMemory cache) ---
-        # ONLY previously proven, tested, and synthesized skills are replayed.
-        result = self._try_known(text)
-        if result is not None:
-            event_bus.emit("pipeline.known_hit", {"text": text[:80]})
-            event_bus.emit("pipeline.path_start", {"path": PATH_KNOWN, "text": text[:80]})
-            calls = result.get("calls", [])
-            results, ok = await self._execute_calls(calls)
-            response = result.get("response", "")
-            if ok:
-                self.skill_memory.record_success(text, calls, response)
-            else:
-                self.skill_memory.record_failure(text, calls)
-                event_bus.emit("pipeline.known_failed_fallback", {"text": text[:80]})
-                new_result = await self._try_new(text, sensor_data, tools)
-                return self._finalize(new_result, PATH_NEW, success=new_result["success"])
-            final = {
-                "response": response,
-                "calls": calls,
-                "results": results,
-                "success": ok,
+        # Intercept -Goal: shortcut
+        if text.lower().startswith("-goal:"):
+            goal_text = text[6:].strip()
+            event_bus.emit("terminal.spawn_goal", {"text": goal_text})
+            # Try to register with LongHorizonEngine if available
+            try:
+                import requests
+                # We could dispatch this directly to the API or engine, but for now we emit the event 
+                # and let the UI handle the API call, or we do it via server core if available.
+            except Exception:
+                pass
+            return {
+                "response": "Goal submitted to Long Horizon Engine.",
+                "calls": [], "results": [], "path_used": "goal", "success": True
             }
-            return self._finalize(final, PATH_KNOWN, success=ok)
+
+        # --- Path: Known (SkillMemory cache) ---
+        # SkillMemory provides a hint (few-shot), but does NOT execute blindly to prevent structural risks.
+        known_skill = self._try_known(text)
+        if known_skill is not None:
+            event_bus.emit("pipeline.known_hit", {"text": text[:80]})
 
         # --- Path: Pure-LLM ReAct Loop (ALL new tasks go directly to LLM) ---
         event_bus.emit("pipeline.new_path", {"text": text[:80]})
         event_bus.emit("pipeline.path_start", {"path": PATH_NEW, "text": text[:80]})
-        result = await self._try_new(text, sensor_data, tools)
+        result = await self._try_new(text, sensor_data, tools, known_skill=known_skill, session_id=session_id)
         return self._finalize(result, PATH_NEW, success=result["success"])
 
     # ---- Reflexive & Known -------------------------------------------------
@@ -376,6 +375,8 @@ class ActionPipeline:
         text: str,
         sensor_data: Optional[Dict[str, Any]],
         tools: Optional[List[Dict[str, Any]]],
+        known_skill: Optional[Dict[str, Any]] = None,
+        session_id: str = "default",
     ) -> Dict[str, Any]:
         """Full-agentic ReAct loop: think → parallel execute → verify → metacognitive check → repair → synthesize."""
         all_calls = []
@@ -402,23 +403,19 @@ class ActionPipeline:
             # Build prompt with accumulated context
             if step == 1:
                 prompt = text
-                
-                # Conversational Filler (Latency Hiding)
-                async def generate_filler():
-                    try:
-                        filler_prompt = f"System: Write a short, empathetic, 3-5 word acknowledgment for the user's request. Do not answer it, just acknowledge. E.g. 'Working on it', 'I'll look into it', 'Sure thing!'.\nUser: {text}\nAcknowledgment: "
-                        local_client = self.reasoning.router.local_client
-                        if local_client:
-                            filler = await local_client.generate(filler_prompt, max_tokens=15)
-                            if filler:
-                                filler = filler.strip('"\'').strip()
-                                event_bus.emit("pipeline.filler_ready", {"text": filler})
-                    except Exception:
-                        pass
-                asyncio.create_task(generate_filler())
-                
+                if known_skill:
+                    cached_calls = known_skill.get("calls", [])
+                    if cached_calls:
+                        prompt += f"\n\n[HINT: A similar task was previously solved using these tools: {json.dumps(cached_calls)}. You can use them if they match the current context.]"
             else:
-                trace_str = json.dumps(trace, ensure_ascii=False, default=str, indent=2)
+                # Condense trace to prevent context inflation
+                condensed_trace = []
+                for t in trace:
+                    st = "OK" if t.get("verified") else "FAIL"
+                    act = t.get("call", {}).get("action", "unknown")
+                    note = t.get("verification_note", "")
+                    condensed_trace.append(f"Step {t.get('step')}: {act} -> [{st}] {note}")
+                trace_str = "\n".join(condensed_trace)
                 prompt = (
                     f"{text}\n\n"
                     f"[MULTI-STEP CONTEXT — Step {step}/{self.max_steps}]\n"
@@ -428,7 +425,7 @@ class ActionPipeline:
                     f"If more actions are needed, emit tool calls."
                 )
 
-            thought = await self.reasoning.think(prompt, sensor_data=sensor_data, tools=tools)
+            thought = await self.reasoning.think(prompt, sensor_data=sensor_data, tools=tools, session_id=session_id)
             calls = thought.get("calls", []) or []
             text_response = thought.get("text", "") or ""
 
@@ -522,7 +519,7 @@ class ActionPipeline:
                     f"Generate alternative tool calls or parameters."
                 )
                 try:
-                    repair_thought = await self.reasoning.think(repair_prompt, sensor_data=sensor_data, tools=tools)
+                    repair_thought = await self.reasoning.think(repair_prompt, sensor_data=sensor_data, tools=tools, session_id=session_id)
                     repair_calls = repair_thought.get("calls", []) or []
                     if repair_calls:
                         repair_results, repair_ok = await self._execute_calls(repair_calls)
@@ -549,20 +546,25 @@ class ActionPipeline:
                 try:
                     verified_count = sum(1 for t in trace if t.get("verified"))
                     failed_count = len(trace) - verified_count
-                    synth_prompt = (
-                        f"{text}\n\n"
-                        f"[POST-EXECUTION SYNTHESIS]\n"
-                        f"Execution trace (structured — {verified_count} verified, {failed_count} failed/unconfirmed):\n"
-                        f"{json.dumps(trace, ensure_ascii=False, default=str, indent=2)}\n\n"
-                        f"IMPORTANT INSTRUCTIONS FOR YOUR RESPONSE:\n"
-                        f"- Report ONLY outcomes confirmed in the trace above (verified=true).\n"
-                        f"- For any action where verified=false, acknowledge it honestly.\n"
-                        f"- Do NOT invent results, file paths, or states not present in the trace.\n"
-                        f"- Be concise and factual. Avoid inventing checkmarks for unverified steps."
-                    )
-                    synth = await self.reasoning.think(synth_prompt, sensor_data=sensor_data)
-                    if synth.get("text"):
-                        text_response = synth["text"].strip()
+                    
+                    if failed_count > 0:
+                        # Enforce failure honestly, skip LLM synthesis hallucination risk
+                        failed_notes = " | ".join(t.get("verification_note", "") for t in trace if not t.get("verified"))
+                        text_response = f"I failed to complete the task. Reason: {failed_notes}"
+                        final_ok = False
+                    else:
+                        synth_prompt = (
+                            f"{text}\n\n"
+                            f"[POST-EXECUTION SYNTHESIS]\n"
+                            f"Execution trace (structured — {verified_count} verified):\n"
+                            f"{json.dumps(trace, ensure_ascii=False, default=str, indent=2)}\n\n"
+                            f"IMPORTANT INSTRUCTIONS FOR YOUR RESPONSE:\n"
+                            f"- Report ONLY outcomes confirmed in the trace above (verified=true).\n"
+                            f"- Be concise and factual."
+                        )
+                        synth = await self.reasoning.think(synth_prompt, sensor_data=sensor_data, session_id=session_id)
+                        if synth.get("text"):
+                            text_response = synth["text"].strip()
                 except Exception as exc:
                     logger.warning(f"pipeline: synthesis skipped: {exc}")
 
@@ -580,7 +582,7 @@ class ActionPipeline:
                     if verification.reflection_prompt and verification.severity == "critical":
                         try:
                             reflection = await self.reasoning.think(
-                                verification.reflection_prompt, sensor_data=sensor_data
+                                verification.reflection_prompt, sensor_data=sensor_data, session_id=session_id
                             )
                             if reflection.get("text"):
                                 text_response = reflection["text"].strip()
@@ -603,17 +605,14 @@ class ActionPipeline:
             event_bus.emit("pipeline.empty_response_fallback", {"text": text[:80]})
 
         try:
-            self.reasoning.memory.remember(text, text_response)
-            
-            # Trigger background memory compression
-            local_client = self.reasoning.router.local_client
-            if local_client:
-                asyncio.create_task(self.reasoning.memory.compress_history(local_client))
+            self.reasoning.memory.remember(text, text_response, session_id=session_id)
         except Exception:
             logger.warning("pipeline: could not remember interaction.")
 
         if final_ok:
             self.skill_memory.record_success(text, all_calls, text_response)
+            # Tarea asíncrona de destilación para enriquecer el Modo Rápido (Offline Mode)
+            asyncio.create_task(self._distill_and_cache(text, all_calls, text_response))
         else:
             self.skill_memory.record_failure(text, all_calls)
 
@@ -626,6 +625,50 @@ class ActionPipeline:
             "raw_response": "",
             "model_used": "",
         }
+
+    async def _distill_and_cache(self, user_text: str, calls: List[Dict[str, Any]], response: str) -> None:
+        """Destila una tarea exitosa usando el LLM online para extraer variaciones 
+        y guardarlas en SkillMemory. Esto hace que el Modo Offline sea super robusto."""
+        if not calls:
+            return
+            
+        from core.skill_memory import _is_cacheable
+        if not _is_cacheable(user_text, calls):
+            return
+
+        try:
+            fast_model = self.reasoning.router.route(user_text, has_tools=False)
+            system_msg = {
+                "role": "system",
+                "content": (
+                    "You are an expert AI linguist. Your task is to extract highly precise, natural, "
+                    "and professional alternative phrasings for a user's intent. "
+                    "Return ONLY a valid JSON array of strings without markdown formatting or explanation."
+                )
+            }
+            user_msg = {
+                "role": "user",
+                "content": (
+                    f"The user successfully executed an action by saying: '{user_text}'.\n"
+                    f"Please generate 3 alternative short, natural phrasings that a user might say to request this exact same action, in the same language.\n"
+                    f"Example format: [\"phrase 1\", \"phrase 2\", \"phrase 3\"]"
+                )
+            }
+            
+            res = await self.reasoning.llm_client.chat([system_msg, user_msg], model=fast_model, temperature=0.3)
+            text = res.get("text", "")
+            
+            import re
+            import json
+            match = re.search(r"\[.*\]", text, re.DOTALL)
+            if match:
+                phrasings = json.loads(match.group(0))
+                for phrase in phrasings:
+                    if isinstance(phrase, str) and len(phrase) > 2:
+                        self.skill_memory.record_success(phrase, calls, response)
+                logger.info(f"pipeline: distilled {len(phrasings)} professional variations for offline fast-mode.")
+        except Exception as e:
+            logger.debug(f"pipeline: background distillation skipped (possibly offline): {e}")
 
     # ---- Execute Calls (with approval) ------------------------------------
 

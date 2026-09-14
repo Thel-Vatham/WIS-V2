@@ -50,44 +50,63 @@
             <div class="tb-center" id="tb-status">SYSTEM ONLINE</div>
             <div class="tb-right">
                 <span class="hud-pill" id="pill-mode" title="Security mode">PRIVILEGED</span>
-                <span class="hud-pill dim" id="pill-path" title="Last cognitive path">—</span>
-                <span class="hud-pill green" id="pill-ws" title="WebSocket">● WS</span>
+                <span class="hud-pill dim" id="pill-path" title="Last cognitive path">None</span>
+                <span class="hud-pill green" id="pill-ws" title="WebSocket">WS</span>
                 <span class="tb-divider"></span>
-                <button class="tb-btn tb-toggle-btn" id="btn-toggle-both" title="Modo Enfoque — Consola Completa 100% (Ctrl+\)">⛶ Consola 100%</button>
-                <button class="tb-btn tb-toggle-btn" id="btn-toggle-right" title="Ocultar / Mostrar Panel Derecho (Ctrl+])">Der ▶</button>
+                <button class="tb-btn tb-toggle-btn" id="btn-toggle-both" title="Modo Enfoque — Consola Completa 100% (Ctrl+\)">Expand</button>
+                <button class="tb-btn tb-toggle-btn" id="btn-toggle-right" title="Ocultar / Mostrar Panel Derecho (Ctrl+])">Sidebar</button>
                 <span class="tb-divider"></span>
-                <button class="tb-btn" id="btn-security" title="Toggle security mode">⚡</button>
-                <button class="tb-btn" id="btn-tts" title="Toggle TTS">🔊</button>
-                <button class="tb-btn" id="btn-new-window" title="Open render window">⊞</button>
-                <button class="tb-btn" id="btn-minimize" title="Minimize">—</button>
-                <button class="tb-btn" id="btn-maximize" title="Maximize / Restore">□</button>
-                <button class="tb-btn danger" id="btn-close" title="Close">✕</button>
+                <button class="tb-btn" id="btn-security" title="Toggle security mode">Sec</button>
+                <button class="tb-btn" id="btn-tts" title="Toggle TTS">Audio</button>
+                <button class="tb-btn" id="btn-new-window" title="Open render window">Render</button>
+                <button class="tb-btn" id="btn-minimize" title="Minimize">Min</button>
+                <button class="tb-btn" id="btn-maximize" title="Maximize / Restore">Max</button>
+                <button class="tb-btn danger" id="btn-close" title="Close">Close</button>
             </div>
         </header>
 
         <!-- WORKSPACE -->
         <div class="workspace" id="workspace">
 
-            <!-- TERMINAL -->
-            <main class="terminal-pane">
-                <div class="terminal-output" id="terminal-output"></div>
-
-                <div class="thinking-row hidden" id="thinking-row">
-                    <div class="thinking-dots"><span></span><span></span><span></span></div>
-                    <span id="thinking-label">WIS is reasoning...</span>
-                    <button class="mini-btn danger ml-auto" id="btn-cancel">✕ cancel</button>
+            <!-- MULTI-TERMINAL WORKSPACE -->
+            <div class="multi-terminal-container">
+                <!-- TAB DOCK -->
+                <div class="terminal-dock" id="terminal-dock">
+                    <button class="tb-btn accent ml-auto" id="btn-new-term" title="New Terminal (Ctrl+T)">+</button>
                 </div>
-
-                <div class="input-row">
-                    <span class="prompt-sym">❯</span>
-                    <textarea id="user-input" class="terminal-input" placeholder="Speak your intent or command..."
-                        rows="1" autocomplete="off" spellcheck="false"></textarea>
-                    <button class="tb-btn" id="btn-mic" title="Voice input">🎙</button>
-                    <button class="tb-btn" id="btn-upload" title="Upload file">📎</button>
-                    <button class="tb-btn accent" id="btn-send" title="Send">⏎</button>
-                    <input type="file" id="file-input" style="display:none" accept="*/*">
+                <!-- TERMINAL GRID -->
+                <div class="terminal-grid" id="terminal-grid">
+                    <!-- Terminal instances will be injected here by app.js -->
                 </div>
-            </main>
+            </div>
+
+            <!-- HTML TEMPLATE FOR TERMINALS (Used by app.js) -->
+            <template id="terminal-template">
+                <main class="terminal-pane">
+                    <div class="terminal-header" draggable="true">
+                        <div class="terminal-drag-handle">≡</div>
+                        <span class="terminal-title">Terminal</span>
+                        <div class="terminal-actions">
+                            <button class="tb-btn" action="minimize" title="Minimize to dock">_</button>
+                            <button class="tb-btn danger" action="close" title="Close">X</button>
+                        </div>
+                    </div>
+                    <div class="terminal-output"></div>
+                    <div class="thinking-row hidden">
+                        <div class="thinking-dots"><span></span><span></span><span></span></div>
+                        <span class="thinking-label">WIS is reasoning...</span>
+                        <button class="mini-btn danger ml-auto" action="cancel">Cancel</button>
+                    </div>
+                    <div class="input-row">
+                        <textarea class="terminal-input" placeholder="Speak your intent or command..." rows="1" autocomplete="off" spellcheck="false"></textarea>
+                        <button class="tb-btn" action="mic" title="Voice input">Mic</button>
+                        <button class="tb-btn" action="upload" title="Upload file">Attach</button>
+                        <button class="tb-btn accent" action="send" title="Send">Send</button>
+                    </div>
+                </main>
+            </template>
+            <!-- Global file input for attachments -->
+            <input type="file" id="global-file-input" style="display:none" accept="*/*">
 
             <!-- RESIZER RIGHT -->
             <div class="resizer resizer-right" id="resizer-right" title="Drag to resize · Double-click to reset"></div>
@@ -96,14 +115,13 @@
             <aside class="sidebar right-sidebar" id="right-sidebar">
                 <div class="sidebar-top-bar">
                     <span class="sidebar-top-title">PLANES & TRAZAS</span>
-                    <button class="mini-btn close-sidebar-btn" id="btn-close-right" title="Ocultar panel derecho (Ctrl+])">✕ Ocultar</button>
+                    <button class="mini-btn close-sidebar-btn" id="btn-close-right" title="Ocultar panel derecho (Ctrl+])">Hide</button>
                 </div>
                 <section class="panel" data-collapsible>
                     <div class="panel-hd">
                         <span class="panel-hd-title">Goal Queue</span>
                         <div class="panel-hd-right">
-                            <button class="mini-btn" id="btn-add-goal">+ Goal</button>
-                            <span class="chevron">›</span>
+                            <button class="mini-btn" id="btn-add-goal">Add</button>
                         </div>
                     </div>
                     <div class="panel-body" id="goal-list">
@@ -115,8 +133,7 @@
                     <div class="panel-hd">
                         <span class="panel-hd-title">Long Horizon Tasks</span>
                         <div class="panel-hd-right">
-                            <button class="mini-btn" id="btn-add-lh-task">+ Task</button>
-                            <span class="chevron">›</span>
+                            <button class="mini-btn" id="btn-add-lh-task">Add</button>
                         </div>
                     </div>
                     <div class="panel-body" id="lh-task-list">
@@ -124,15 +141,7 @@
                     </div>
                 </section>
 
-                <section class="panel flex1" data-collapsible>
-                    <div class="panel-hd">
-                        <span class="panel-hd-title">Execution Trace</span>
-                        <div class="panel-hd-right"><span class="chevron">›</span></div>
-                    </div>
-                    <div class="panel-body" id="trace-list">
-                        <div class="empty-state">Pipeline idle</div>
-                    </div>
-                </section>
+
             </aside>
 
         </div>
@@ -141,7 +150,6 @@
     <!-- MODALS (unchanged) -->
     <div id="approval-modal" class="modal-overlay hidden">
         <div class="modal-card danger-card">
-            <div class="modal-icon">⚠</div>
             <h3>Security Clearance Required</h3>
             <p id="approval-text">Awaiting action details...</p>
             <div class="modal-btns">
@@ -187,6 +195,7 @@
         </div>
     </div>
 
+    <script src="terminal.js"></script>
     <script src="app.js"></script>
 </body>
 

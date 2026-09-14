@@ -211,6 +211,7 @@ class ChatRequest(BaseModel):
     """Peticion de chat enviada por el usuario."""
 
     message: str
+    session_id: str = "default"
 
 
 class ChatResponse(BaseModel):
@@ -508,7 +509,11 @@ def create_app(
 
             # Ruta sincrona / asincrona clasica.
             sensor_data = gather_system_context()
-            raw = await _maybe_await(core.praxis.process(req.message, sensor_data=sensor_data))
+            raw = await _maybe_await(core.praxis.process(
+                req.message, 
+                sensor_data=sensor_data, 
+                session_id=req.session_id
+            ))
             data = _normalize_response(raw)
             return ChatResponse(**data)
         except HTTPException:
