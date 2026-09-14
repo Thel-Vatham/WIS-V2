@@ -608,6 +608,10 @@ function handleBusEvent(event, payload) {
         stopTtsAudio();
         // Do not appendUserMessage here because sendChatRequest already does it instantly.
         // This avoids duplication and blocking issues if WS is delayed.
+    } else if (event === "pipeline.call_start") {
+        if (targetTerm) targetTerm.setThinking(true, "Executing: " + (payload.action || payload.skill) + "...");
+    } else if (event === "pipeline.loop_step") {
+        if (targetTerm) targetTerm.setThinking(true, "Thinking (Step " + payload.step + ")...");
     } else if (event === "ptt.started") {
         stopTtsAudio();
         if (targetTerm) targetTerm.setThinking(true, "Listening (PTT active)...");
@@ -707,9 +711,9 @@ function renderFullResponse(data) {
     if (State.currentStreamMsg && State.currentStreamMsg.dataset.raw) {
         // Stream completed
         State.currentStreamMsg.innerHTML = formatMarkdown(text);
-        if (calls.length > 0) {
-            renderCallsInBubble(State.currentStreamMsg, calls);
-        }
+        // if (calls.length > 0) {
+        //     renderCallsInBubble(State.currentStreamMsg, calls);
+        // }
     } else {
         const el = document.createElement("div");
         el.className = "msg msg-wis";
@@ -721,7 +725,7 @@ function renderFullResponse(data) {
             <div class="msg-bubble">${formatMarkdown(text)}</div>
         `;
         const bubble = el.querySelector(".msg-bubble");
-        if (calls.length > 0) renderCallsInBubble(bubble, calls);
+        // if (calls.length > 0) renderCallsInBubble(bubble, calls);
         Dom.terminalOutput.appendChild(el);
     }
 
@@ -747,7 +751,7 @@ function renderCallsInBubble(bubble, calls) {
         card.innerHTML = `
             <details>
                 <summary class="tool-card-hd" style="cursor: pointer; list-style: none;">
-                    <span class="tool-name">⚡ ${escapeHtml(fnName)}</span>
+                    <span class="tool-name">${escapeHtml(fnName)}</span>
                     <span class="tool-status success">COMPLETED</span>
                 </summary>
                 <div class="tool-body" style="margin-top: 8px;">${escapeHtml(args)}</div>
@@ -840,20 +844,12 @@ window.sendChatRequest = async function(text, terminalInstance) {
             for (let i = 0; i < data.calls.length; i++) {
                 const call = data.calls[i];
                 const resObj = data.results && data.results[i] ? data.results[i] : { ok: true };
-                const icon = resObj.ok ? "✓" : "✗";
+                const icon = resObj.ok ? "[OK]" : "[ERR]";
                 const cname = resObj.ok ? "success" : "danger";
-                
-                let detailsStr = "";
-                try {
-                    const argCopy = { ...call };
-                    delete argCopy.action;
-                    detailsStr = JSON.stringify(argCopy);
-                } catch(e) {}
                 
                 toolsHtml += `<div class="msg-tool-item">
                     <span class="tool-icon ${cname}">${icon}</span>
                     <span class="tool-action">${call.action}</span>
-                    <span class="tool-args">${escapeHtml(detailsStr)}</span>
                 </div>`;
             }
             toolsHtml += '</div>';
@@ -1139,11 +1135,16 @@ function showApprovalModal(data) {
 async function handleApproval(approved) {
     if (Dom.approvalModal) Dom.approvalModal.classList.add("hidden");
     const endpoint = approved ? "/api/approve" : "/api/deny";
+    const sessionId = State.pendingApproval && State.pendingApproval.session_id ? State.pendingApproval.session_id : "default";
     try {
-        await fetch(endpoint, { method: "POST", headers: getAuthHeaders() });
-        appendSystemMessage(approved ? "✓ Security clearance AUTHORIZED." : "✕ Security clearance DENIED.");
+        await fetch(endpoint, { 
+            method: "POST", 
+            headers: getAuthHeaders(),
+            body: JSON.stringify({ session_id: sessionId })
+        });
+        appendSystemMessage(approved ? "Security clearance AUTHORIZED." : "Security clearance DENIED.", sessionId);
     } catch (e) {
-        appendSystemMessage("Clearance response error: " + e.message);
+        appendSystemMessage("Clearance response error: " + e.message, sessionId);
     }
     State.pendingApproval = null;
 }

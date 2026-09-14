@@ -644,17 +644,29 @@ def create_app(
     # --- Approval endpoints ---
 
     @app.post("/api/approve")
-    async def approve_action(_: None = Depends(require_auth)) -> Dict[str, bool]:
+    async def approve_action(req: Request, _: None = Depends(require_auth)) -> Dict[str, bool]:
+        body = {}
+        try:
+            body = await req.json()
+        except:
+            pass
+        session_id = body.get("session_id", "default")
         core = get_core()
         if core.praxis and hasattr(core.praxis, 'approve_action'):
-            core.praxis.approve_action()
+            core.praxis.approve_action(session_id)
         return {"approved": True}
 
     @app.post("/api/deny")
-    async def deny_action(_: None = Depends(require_auth)) -> Dict[str, bool]:
+    async def deny_action(req: Request, _: None = Depends(require_auth)) -> Dict[str, bool]:
+        body = {}
+        try:
+            body = await req.json()
+        except:
+            pass
+        session_id = body.get("session_id", "default")
         core = get_core()
         if core.praxis and hasattr(core.praxis, 'deny_action'):
-            core.praxis.deny_action()
+            core.praxis.deny_action(session_id)
         return {"denied": True}
 
     # --- Proactivity endpoints ---

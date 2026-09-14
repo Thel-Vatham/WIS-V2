@@ -522,11 +522,11 @@ def setup_terminal_trace() -> None:
         elif evt == "pipeline.loop_step":
             print(f"{cyan}[STEP]{reset} Iteration Step {data.get('step')}/{data.get('max_steps')} - Executing reasoning...")
         elif evt == "pipeline.call_start":
-            print(f"{yellow}[EXECUTE]{reset} Action: {data.get('skill')}.{data.get('action')} - Params: {data.get('params')}")
+            print(f"{yellow}[EXECUTE]{reset} ✓ Ejecutando: {data.get('skill')}.{data.get('action')} ...")
         elif evt == "pipeline.call_result":
             status_color = green if data.get("success") else red
             status_text = "SUCCESS" if data.get("success") else "FAILED"
-            print(f"{status_color}[OUTPUT] ({status_text}){reset} {data.get('skill')}.{data.get('action')} -> Output: {data.get('output')}")
+            print(f"{status_color}[OUTPUT] ({status_text}){reset} ✓ {data.get('skill')}.{data.get('action')} finalizado.")
         elif evt == "pipeline.call_blocked":
             print(f"{red}[SECURITY BLOCK]{reset} Action {data.get('name')} rejected by Aegis: {data.get('reason')}")
         elif evt == "pipeline.approval_required":

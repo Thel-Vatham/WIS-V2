@@ -258,7 +258,7 @@ class SystemAbility(Ability):
             output = (proc.stdout or "").strip()
             errors = (proc.stderr or "").strip()
             return {
-                "success": proc.returncode == 0,
+                "success": True,  # Siempre True para que el agente maneje el exit code
                 "data": {
                     "returncode": proc.returncode,
                     "stdout": output[-3000:],
@@ -325,7 +325,7 @@ class SystemAbility(Ability):
                 cwd=cwd,
             )
             return {
-                "success": proc.returncode == 0,
+                "success": True,  # Siempre True para que el agente procese el exit code
                 "data": {
                     "returncode": proc.returncode,
                     "stdout": (proc.stdout or "").strip()[-3000:],

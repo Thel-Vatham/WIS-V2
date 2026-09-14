@@ -45,7 +45,7 @@ La interfaz está construida en **HTML5 semántico, CSS3 moderno y Vanilla JavaS
 
 ### Endpoints de Cognición y Ejecución
 - `POST /api/chat`:
-  - Entrada: `{"message": "string"}`.
+  - Entrada: `{"message": "string", "session_id": "string"}`.
   - Respuesta: `StreamingResponse` (Event-Stream token a token) o JSON `{response, calls, path_used}`.
 - `GET /api/state`: Retorna estadísticas de memoria mnemónica, hechos almacenados y habilidades activas.
 - `GET /api/abilities`: Catálogo completo de esquemas JSON de las 19 habilidades disponibles.
@@ -54,8 +54,8 @@ La interfaz está construida en **HTML5 semántico, CSS3 moderno y Vanilla JavaS
 ### Endpoints de Seguridad y Gobernanza (Aegis)
 - `GET /api/security/mode`: Consulta el modo actual (`secure`, `privileged`).
 - `POST /api/security/mode`: Cambia el nivel de privilegios y lo persiste en `config/settings.json`.
-- `POST /api/approve`: El usuario confirma la ejecución de una acción retenida por la política de seguridad.
-- `POST /api/deny`: El usuario rechaza la acción peligrosa, cancelando el pipeline.
+- `POST /api/approve`: El usuario confirma la ejecución de una acción retenida. Recibe `session_id` para desbloquear únicamente la terminal solicitante.
+- `POST /api/deny`: El usuario rechaza la acción peligrosa para la terminal especificada en `session_id`, cancelando ese pipeline.
 
 ### Endpoints de Metas y Tareas de Largo Horizonte
 - `POST /api/goals`: Crea una meta y descompone su plan en el `GoalManager`.
@@ -80,6 +80,7 @@ La interfaz está construida en **HTML5 semántico, CSS3 moderno y Vanilla JavaS
 El endpoint `/ws` establece un canal bidireccional de baja latencia:
 - Los clientes autenticados reciben todas las emisiones del `EventBus` (`event_bus.subscribe("*")`).
 - Se emiten eventos de latido (`heartbeat`), tokens en streaming (`llm.chunk`), llamadas a herramientas iniciadas (`tool.executing`), respuestas empíricas (`tool.result`) y alertas de telemetría de hardware (`telemetry.threshold_triggered`).
+- **Enrutamiento por Sesión:** Todo evento originado por una interacción de terminal incluye un atributo `"session_id"`, permitiendo que el frontend asigne de forma precisa los indicadores de "Thinking..." y los outputs a la pestaña correcta sin bloquear el resto de la interfaz paralela.
 
 ---
 

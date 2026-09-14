@@ -49,6 +49,15 @@ Toda solicitud nueva pasa directamente por el modelo de lenguaje:
 
 ---
 
+## 3. Aislamiento Asíncrono de Sesiones (Multitenancy Local)
+
+WIS soporta múltiples terminales trabajando en paralelo dentro de la misma interfaz gráfica, sin bloquearse mutuamente. Esto se logra a través de:
+- **Aislamiento de Memoria:** Cada terminal genera un `session_id` único. El módulo `Memory` gestiona diccionarios independientes de historiales conversacionales a corto plazo para cada `session_id`.
+- **Pipeline Stateless (Eventos Aislados):** El `ActionPipeline` mantiene el control de flujo (eventos de cancelación manual y bloqueos de seguridad Aegis) en diccionarios mapeados por `session_id`.
+- **Event Bus Enrutado:** Todas las emisiones de estado (`pipeline.loop_step`, `pipeline.call_start`, etc.) inyectan el `session_id` en su payload. Esto asegura que la UI solo renderice y bloquee (estado "Thinking") la terminal específica que está ejecutando la tarea, permitiendo al usuario interactuar libremente con otras terminales paralelas.
+
+---
+
 ## 3. MetaCognitive Verifier (`core/verifier.py`)
 
 Portado e integrado desde la arquitectura de vanguardia de AVRORA, el **MetaCognitive Verifier** actúa como un árbitro metacognitivo post-síntesis:

@@ -66,9 +66,9 @@ class ActionPipeline:
         self.goal_manager: Optional[GoalManager] = None
 
         # Approval mechanism for secure mode
-        self._approval_event: Optional[asyncio.Event] = None
-        self._approval_result: bool = False
-        self._cancel_event: Optional[asyncio.Event] = None
+        self._approval_events: Dict[str, asyncio.Event] = {}
+        self._approval_results: Dict[str, bool] = {}
+        self._cancel_events: Dict[str, asyncio.Event] = {}
 
         self._reflex_table: Dict[str, str] = {
             "hi": "Hello.",
@@ -102,22 +102,22 @@ class ActionPipeline:
 
     # ---- Approval API (called from server.py) -----------------------------
 
-    def approve_action(self) -> None:
+    def approve_action(self, session_id: str = "default") -> None:
         """Aprueba la accion riesgosa en espera."""
-        self._approval_result = True
-        if self._approval_event:
-            self._approval_event.set()
+        self._approval_results[session_id] = True
+        if session_id in self._approval_events:
+            self._approval_events[session_id].set()
 
-    def deny_action(self) -> None:
+    def deny_action(self, session_id: str = "default") -> None:
         """Deniega la accion riesgosa."""
-        self._approval_result = False
-        if self._approval_event:
-            self._approval_event.set()
+        self._approval_results[session_id] = False
+        if session_id in self._approval_events:
+            self._approval_events[session_id].set()
 
-    def cancel_processing(self) -> None:
+    def cancel_processing(self, session_id: str = "default") -> None:
         """Cancela el loop agentico actual."""
-        if self._cancel_event:
-            self._cancel_event.set()
+        if session_id in self._cancel_events:
+            self._cancel_events[session_id].set()
 
     # ---- Main Process -----------------------------------------------------
 
@@ -142,13 +142,13 @@ class ActionPipeline:
             if hasattr(self.abilities, "get_schemas"):
                 tools = self.abilities.get_schemas()
 
-        event_bus.emit("pipeline.input_received", {"text": text, "session_id": session_id})
-        self._cancel_event = asyncio.Event()
+        event_bus.emit("pipeline.input_received", { "session_id": session_id,"text": text, "session_id": session_id})
+        self._cancel_events[session_id] = asyncio.Event()
 
         # Intercept -Goal: shortcut
         if text.lower().startswith("-goal:"):
             goal_text = text[6:].strip()
-            event_bus.emit("terminal.spawn_goal", {"text": goal_text})
+            event_bus.emit("terminal.spawn_goal", { "session_id": session_id,"text": goal_text})
             # Try to register with LongHorizonEngine if available
             try:
                 import requests
@@ -165,11 +165,11 @@ class ActionPipeline:
         # SkillMemory provides a hint (few-shot), but does NOT execute blindly to prevent structural risks.
         known_skill = self._try_known(text)
         if known_skill is not None:
-            event_bus.emit("pipeline.known_hit", {"text": text[:80]})
+            event_bus.emit("pipeline.known_hit", { "session_id": session_id,"text": text[:80]})
 
         # --- Path: Pure-LLM ReAct Loop (ALL new tasks go directly to LLM) ---
-        event_bus.emit("pipeline.new_path", {"text": text[:80]})
-        event_bus.emit("pipeline.path_start", {"path": PATH_NEW, "text": text[:80]})
+        event_bus.emit("pipeline.new_path", { "session_id": session_id,"text": text[:80]})
+        event_bus.emit("pipeline.path_start", { "session_id": session_id,"path": PATH_NEW, "text": text[:80]})
         result = await self._try_new(text, sensor_data, tools, known_skill=known_skill, session_id=session_id)
         return self._finalize(result, PATH_NEW, success=result["success"])
 
@@ -391,11 +391,11 @@ class ActionPipeline:
             step_count = step
 
             # Check cancellation
-            if self._cancel_event and self._cancel_event.is_set():
-                event_bus.emit("pipeline.loop_cancelled", {"step": step, "text": text[:80]})
+            if session_id in self._cancel_events and self._cancel_events[session_id].is_set():
+                event_bus.emit("pipeline.loop_cancelled", { "session_id": session_id,"step": step, "text": text[:80]})
                 break
 
-            event_bus.emit("pipeline.loop_step", {
+            event_bus.emit("pipeline.loop_step", { "session_id": session_id,
                 "step": step, "max_steps": self.max_steps,
                 "text": text[:80],
             })
@@ -414,7 +414,14 @@ class ActionPipeline:
                     st = "OK" if t.get("verified") else "FAIL"
                     act = t.get("call", {}).get("action", "unknown")
                     note = t.get("verification_note", "")
-                    condensed_trace.append(f"Step {t.get('step')}: {act} -> [{st}] {note}")
+                    
+                    res = t.get("result", {})
+                    out = res.get("data") or res.get("output")
+                    out_str = ""
+                    if out:
+                        out_str = f" | Output: {str(out)[:800]}"
+                        
+                    condensed_trace.append(f"Step {t.get('step')}: {act} -> [{st}] {note}{out_str}")
                 trace_str = "\n".join(condensed_trace)
                 prompt = (
                     f"{text}\n\n"
@@ -435,7 +442,7 @@ class ActionPipeline:
                 break
 
             # Execute calls (with approval check in secure mode)
-            results, ok = await self._execute_calls(calls)
+            results, ok = await self._execute_calls(calls, session_id=session_id)
             all_calls.extend(calls)
             all_results.extend(results)
 
@@ -508,7 +515,7 @@ class ActionPipeline:
                 ]
                 error_desc = " | ".join(str(m) for m in failed_msgs if m)
                 category = FailureClassifier.classify(error_desc)
-                event_bus.emit("pipeline.failure_classified", {
+                event_bus.emit("pipeline.failure_classified", { "session_id": session_id,
                     "category": category, "error": error_desc, "text": text[:80]
                 })
 
@@ -575,7 +582,7 @@ class ActionPipeline:
                     action_trace=trace,
                 )
                 if not verification.passed:
-                    event_bus.emit("pipeline.metacognitive_correction", {
+                    event_bus.emit("pipeline.metacognitive_correction", { "session_id": session_id,
                         "issue": verification.issue,
                         "severity": verification.severity,
                     })
@@ -589,7 +596,7 @@ class ActionPipeline:
                         except Exception as exc:
                             logger.warning(f"pipeline: reflection skipped: {exc}")
 
-        event_bus.emit("pipeline.loop_done", {
+        event_bus.emit("pipeline.loop_done", { "session_id": session_id,
             "steps": step_count, "max_steps": self.max_steps,
             "success": final_ok, "text": text[:80],
         })
@@ -602,7 +609,7 @@ class ActionPipeline:
                 "and try again."
             )
             final_ok = False
-            event_bus.emit("pipeline.empty_response_fallback", {"text": text[:80]})
+            event_bus.emit("pipeline.empty_response_fallback", { "session_id": session_id,"text": text[:80]})
 
         try:
             self.reasoning.memory.remember(text, text_response, session_id=session_id)
@@ -683,13 +690,13 @@ class ActionPipeline:
         if not prompt:
             return
         logger.info("pipeline: autonomous trigger fired: %s", prompt[:80])
-        event_bus.emit("pipeline.autonomous_trigger", {"prompt": prompt[:80]})
+        event_bus.emit("pipeline.autonomous_trigger", { "session_id": session_id,"prompt": prompt[:80]})
         try:
             await self.process(prompt, sensor_data=sensor_data)
         except Exception as exc:
             logger.error("pipeline: autonomous trigger failed: %s", exc)
 
-    async def _execute_calls(self, calls: List[Dict[str, Any]]) -> tuple:
+    async def _execute_calls(self, calls: List[Dict[str, Any]], session_id: str = "default") -> tuple:
         if not calls:
             return [], True
 
@@ -704,7 +711,7 @@ class ActionPipeline:
         # Execute safe calls in parallel
         if safe_calls:
             safe_results = await asyncio.gather(
-                *[self._execute_single_call(c) for c in safe_calls],
+                *[self._execute_single_call(c, session_id=session_id) for c in safe_calls],
                 return_exceptions=False,
             )
             results.extend(safe_results)
@@ -713,7 +720,7 @@ class ActionPipeline:
 
         # Execute risky calls sequentially (approval required)
         for call in risky_calls:
-            r = await self._execute_single_call(call, require_approval=True)
+            r = await self._execute_single_call(call, require_approval=True, session_id=session_id)
             results.append(r)
             if not r.get("ok", False):
                 all_ok = False
@@ -721,7 +728,7 @@ class ActionPipeline:
         return results, all_ok
 
     async def _execute_single_call(
-        self, call: Dict[str, Any], require_approval: bool = False
+        self, call: Dict[str, Any], require_approval: bool = False, session_id: str = "default"
     ) -> Dict[str, Any]:
         """Execute a single tool call with safety, optional approval gate, and dispatch."""
         if not isinstance(call, dict):
@@ -731,7 +738,7 @@ class ActionPipeline:
         allowed, reason = self.safety.check(call)
         if not allowed:
             call_name = call.get("skill") or call.get("name") or "unknown"
-            event_bus.emit("pipeline.call_blocked", {"name": call_name, "reason": reason})
+            event_bus.emit("pipeline.call_blocked", { "session_id": session_id,"name": call_name, "reason": reason})
             return {"blocked": True, "reason": reason, "name": call_name, "ok": False}
 
         # Approval gate
@@ -740,25 +747,25 @@ class ActionPipeline:
                 call.get("skill") or call.get("name") or
                 call.get("action") or call.get("tool") or "unknown"
             )
-            event_bus.emit("pipeline.approval_required", {
+            event_bus.emit("pipeline.approval_required", { "session_id": session_id,
                 "call": call, "name": call_name,
                 "action": call.get("action") or call.get("tool") or "",
                 "params": call.get("params") or call.get("arguments") or {},
             })
-            self._approval_event = asyncio.Event()
-            self._approval_result = False
+            self._approval_events[session_id] = asyncio.Event()
+            self._approval_results[session_id] = False
             try:
-                await asyncio.wait_for(self._approval_event.wait(), timeout=120)
+                await asyncio.wait_for(self._approval_events[session_id].wait(), timeout=120)
             except asyncio.TimeoutError:
-                self._approval_result = False
-            if not self._approval_result:
-                event_bus.emit("pipeline.call_denied", {"name": call_name})
+                self._approval_results[session_id] = False
+            if not self._approval_results.get(session_id, False):
+                event_bus.emit("pipeline.call_denied", { "session_id": session_id,"name": call_name})
                 return {
                     "ok": False, "name": call_name,
                     "action": call.get("action") or "",
                     "output": {"error": "denied_by_user"},
                 }
-            event_bus.emit("pipeline.call_approved", {"name": call_name})
+            event_bus.emit("pipeline.call_approved", { "session_id": session_id,"name": call_name})
 
         # Resolve skill / action / params
         skill_name = str(call.get("skill") or call.get("name") or call.get("tool") or "").strip()
@@ -803,7 +810,7 @@ class ActionPipeline:
                         skill_name = ab_name
                         break
 
-        event_bus.emit("pipeline.call_start", {"skill": skill_name, "action": action, "params": params})
+        event_bus.emit("pipeline.call_start", { "session_id": session_id,"skill": skill_name, "action": action, "params": params})
 
         output = None
         success = False
@@ -836,7 +843,7 @@ class ActionPipeline:
             output = {"error": "no_abilities_registered"}
             success = False
 
-        event_bus.emit("pipeline.call_result", {
+        event_bus.emit("pipeline.call_result", { "session_id": session_id,
             "skill": skill_name, "action": action,
             "success": success, "output": output,
         })
@@ -852,5 +859,6 @@ class ActionPipeline:
             "success": bool(result.get("success", success)),
             "steps_used": result.get("steps_used", 1),
         }
+        final_dict["session_id"] = session_id
         event_bus.emit("pipeline.response_ready", final_dict)
         return final_dict
