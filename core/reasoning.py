@@ -49,7 +49,7 @@ class ReasoningEngine:
         session_id: str = "default",
     ) -> Dict[str, Any]:
         context: str = self._compile_context(user_input)
-        system_prompt: str = self._build_system_prompt(context, tools=tools)
+        system_prompt: str = self._build_system_prompt(context, tools=tools, session_id=session_id)
 
         messages: List[Dict[str, Any]] = [{"role": "system", "content": system_prompt}]
         messages.extend(self.memory.get_history(session_id))
@@ -328,6 +328,7 @@ class ReasoningEngine:
         self,
         context: str,
         tools: Optional[List[Dict[str, Any]]] = None,
+        session_id: str = "default",
     ) -> str:
         parts: List[str] = []
 
@@ -357,14 +358,15 @@ class ReasoningEngine:
         else:
             parts.append(self.identity.get_system_prompt_section())
 
-        # 2. Temporal Context
+        # 2. Temporal Context & Session
         import datetime
         now = datetime.datetime.now()
         current_time_str = now.strftime("%A, %B %d, %Y, %H:%M:%S")
         parts.append(
-            f"TEMPORAL CONTEXT\n"
+            f"ENVIRONMENT CONTEXT\n"
             f"- Current Date/Time: {current_time_str}\n"
-            f"- Current Year: {now.year}"
+            f"- Current Year: {now.year}\n"
+            f"- Current Session/Project ID: {session_id}"
         )
 
         # 3. Execution (Tool rules)

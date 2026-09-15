@@ -252,6 +252,8 @@ class LongHorizonEngine:
         self._running = False
         if self._loop and not self._loop.is_closed():
             self._loop.call_soon_threadsafe(self._loop.stop)
+        if self._thread and self._thread.is_alive() and self._thread is not threading.current_thread():
+            self._thread.join(timeout=1.0)
 
     def _run_loop(self) -> None:
         asyncio.set_event_loop(self._loop)

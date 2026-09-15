@@ -1,0 +1,37 @@
+[
+  {
+    "ability_name": "nao_robot",
+    "requirements": "## Dispositivo objetivo\nrobot NAO (SoftBank Robotics / Aldebaran)\n\n## Informacion de conexion\nNAOqi 2.8 SDK, TCP port 9559. Robot IP to be provided by user (typical 192.168.1.x). Uses qi Python SDK (naoqi) with ALProxy / ALBehaviorManager / ALTextToSpeech / ALMotion / ALVideoDevice.\n\n## Contexto adicional del usuario\nWe are working explicitly in this terminal with NAO. Need a skill that can: connect to NAO via IP, make it speak (ALTextToSpeech.say), run behaviors/postures, move the head, take a picture with the top camera, and report battery level. Should handle connection errors gracefully and allow setting the IP at runtime.\n\n## Investigacion tecnica (WIS encontro esto en internet)\nDispositivo: robot NAO (SoftBank Robotics / Aldebaran). Informacion de conexion: NAOqi 2.8 SDK, TCP port 9559. Robot IP to be provided by user (typical 192.168.1.x). Uses qi Python SDK (naoqi) with ALProxy / ALBehaviorManager / ALTextToSpeech / ALMotion / ALVideoDevice.. Contexto adicional: We are working explicitly in this terminal with NAO. Need a skill that can: connect to NAO via IP, make it speak (ALTextToSpeech.say), run behaviors/postures, move the head, take a picture with the top camera, and r",
+    "file": "D:\\WIS\\abilities\\custom\\nao_robot.py",
+    "requested_overwrite": false,
+    "timestamp": "2026-09-14T23:51:49.174863Z",
+    "build_success": false,
+    "status": "failed",
+    "message": "El LLM no genero codigo. Verifica la configuracion de la API (Keys.env).",
+    "dependencies": []
+  },
+  {
+    "ability_name": "nao_robot",
+    "requirements": "## Dispositivo objetivo\nrobot NAO (SoftBank Robotics / Aldebaran)\n\n## Informacion de conexion\nNAOqi SDK (pynaoqi) over TCP. Default port 9559. Connection via IP address of the NAO robot on the local network. Python 2.7 + pynaoqi SDK on Windows.\n\n## Contexto adicional del usuario\nControl NAO v6 via NAOqi: connect to robot by IP on port 9559, run behaviors, text-to-speech (ALTextToSpeech), motion (ALMotion), posture (ALRobotPosture), autonomous life (ALAutonomousLife), and camera (ALVideoDevice). Environment: Windows, Python 2.7 with pynaoqi SDK. Need connect, say, move, stand, sit, and stop actions.\n\n## Investigacion tecnica (WIS encontro esto en internet)\n**Search:** robot NAO (SoftBank Robotics / Aldebaran) Python SDK API control tutorial NAOqi SDK (pynaoqi) over TCP. Default port 9559. Connection via IP address of the NAO robot on the local network. Python 2.7 + pynaoqi SDK on Windows.\n\n**Results (DuckDuckGo HTML):**\n- **Python SDK — Aldebaran 2.5.11.14a documentation**\n  SoftBank Robotics documentationWhat&#x27;s new in NAOqi 2.5? NAOqiPepperNAORomeo Quick search Enter search terms or a module, class or function name....\n  https://doc.aldebaran.com/2-5/dev/python/index.html\n- **",
+    "file": "D:\\WIS\\abilities\\custom\\nao_robot.py",
+    "requested_overwrite": false,
+    "timestamp": "2026-09-14T23:52:29.725094Z",
+    "build_success": false,
+    "status": "failed",
+    "message": "Error al instalar dependencias ['naoqi']: ERROR: Could not find a version that satisfies the requirement naoqi (from versions: none)\nERROR: No matching distribution found for naoqi\n",
+    "dependencies": [
+      "naoqi"
+    ]
+  },
+  {
+    "ability_name": "nao_robot",
+    "requirements": "## Dispositivo objetivo\nrobot NAO (SoftBank Robotics / Aldebaran)\n\n## Informacion de conexion\nNAOqi 2.8 SDK, TCP port 9559. Robot IP provided at runtime (typical 192.168.1.x). Uses the Python qi SDK (naoqi) with ALProxy: ALTextToSpeech, ALMotion, ALBehaviorManager, ALVideoDevice, ALBattery.\n\n## Contexto adicional del usuario\nWe work explicitly with NAO in this terminal. The skill must expose these actions: set_ip(ip), connect(), speak(text) via ALTextToSpeech.say, run_behavior(name) via ALBehaviorManager.runBehavior, go_to_posture(name) via ALRobotPosture, move_head(yaw, pitch) via ALMotion, take_picture() via ALVideoDevice top camera saving a JPEG, and battery_level() via ALBattery. Handle connection errors gracefully and allow setting the IP at runtime. Use the naoqi/qi Python SDK if available, otherwise fall back to a raw TCP socket check on port 9559.\n\n## Investigacion tecnica (WIS encontro esto en internet)\n**Search:** robot NAO (SoftBank Robotics / Aldebaran) Python SDK API control tutorial NAOqi 2.8 SDK, TCP port 9559. Robot IP provided at runtime (typical 192.168.1.x). Uses the Python qi SDK (naoqi) with ALProxy: ALTextToSpeech, ALMotion, ALBehaviorManager, ALVideoDevice, A",
+    "file": "D:\\WIS\\abilities\\custom\\nao_robot.py",
+    "requested_overwrite": false,
+    "timestamp": "2026-09-14T23:53:14.796374Z",
+    "build_success": false,
+    "status": "failed",
+    "message": "El LLM no genero codigo. Verifica la configuracion de la API (Keys.env).",
+    "dependencies": []
+  }
+]

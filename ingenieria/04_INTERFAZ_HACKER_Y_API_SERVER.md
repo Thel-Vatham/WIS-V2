@@ -30,10 +30,15 @@ La interfaz está construida en **HTML5 semántico, CSS3 moderno y Vanilla JavaS
   - Paneles y tarjetas: `#0d0d0d` con bordes sutiles `#1f2428`.
   - Acentos de texto: `#00ff66` (Hacker Green) y `#00ffff` (Cyan Neon).
   - Alertas y seguridad: `#ff3366` (Crimson Warning).
-- **Layout de 3 Columnas:**
-  - **Columna Izquierda (Data Stream & Hardware):** Muestra el grafo de dispositivos activos en tiempo real, puertos COM abiertos y lecturas de telemetría continuas.
-  - **Columna Central (Terminal Core):** Registro de conversación, streaming de tokens del LLM, visualización de bloques de código y salida de herramientas en vivo.
-  - **Columna Derecha (Mission DAG & MetaCognition):** Estado de las metas del `GoalManager`, grafo de tareas de largo horizonte y visualizador del rastro del `MetaCognitive Verifier`.
+- **Disposición Táctica y Grid Inteligente (Multitenancy):**
+  La interfaz se divide en múltiples zonas funcionales, donde el panel central (Terminal Core) soporta partición en Grid para múltiples terminales de proyecto.
+  - **Columna Izquierda (Side Panel):** Lista de Tareas Largo Plazo (Long-Horizon), Historial Cognitivo en vivo, y Panel de Administración de Metas.
+  - **Columna Central (Terminal Core):** Partición dinámica estilo "tmux". Contiene instancias paralelas de terminales.
+    - Las terminales pueden **renombrarse con doble clic** para asignarles nombres de proyectos (ej: `robot-nao`, `server`). Estos nombres persisten el contexto y el CWD.
+    - Al cerrar la pestaña o recargar el navegador, las terminales activas se **auto-restauran** desde `localStorage`.
+    - Cada terminal cuenta con: Registro de conversación, streaming de tokens del LLM, visualización de bloques de código y salida de herramientas en vivo.
+  - **Barra Inferior (Dock):** Cuando el Grid central se llena, las terminales adicionales o minimizadas se apilan aquí en forma de pestañas interactivas y arrastrables.
+  - **Columna Derecha (File Manager):** (Planeado/Placeholder) Para inspección de árbol de directorios local de la máquina anfitriona.
 
 ---
 

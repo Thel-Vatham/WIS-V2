@@ -57,6 +57,7 @@ class SystemAbility(Ability):
         if extra_allowed:
             self._allowed |= {str(x).lower().strip() for x in extra_allowed}
         self._timers = {}
+        self.session_cwds = {}
 
     @property
     def mode(self) -> str:
@@ -159,12 +160,32 @@ class SystemAbility(Ability):
             return await self._get_process_list(params)
         if action in ("get_resource_usage", "resource_usage"):
             return self._get_resource_usage()
+        if action == "rename_session":
+            return self._rename_session_action(params)
 
         return {
             "success": False,
             "data": None,
             "message": f"Accion de sistema no reconocida: '{action}'.",
         }
+
+    def rename_session(self, old_id: str, new_id: str) -> None:
+        """Migra el directorio de trabajo actual (CWD) de la sesion."""
+        if old_id in self.session_cwds and old_id != new_id:
+            self.session_cwds[new_id] = self.session_cwds.pop(old_id)
+
+    def _rename_session_action(self, params: dict) -> dict:
+        old_id = str(params.get("_session_id", ""))
+        new_id = str(params.get("new_id", "")).strip()
+        if not new_id:
+            return {"success": False, "message": "Falta new_id."}
+        
+        # El motor central (app) debe manejar la migración completa enviando un evento,
+        # pero la habilidad puede realizar su propia migración local:
+        self.rename_session(old_id, new_id)
+        # Notificar a traves de event_bus podria ser ideal, pero por simplicidad
+        # asumimos que la interfaz o el motor de eventos orquestan el resto.
+        return {"success": True, "message": f"Sesión renombrada a '{new_id}'. (Requiere recarga si la UI no escuchó el evento)."}
 
     def _get_time(self) -> dict:
         """Devuelve la hora actual con formato HH:MM:SS."""
@@ -222,7 +243,7 @@ class SystemAbility(Ability):
             token = self._first_token(command)
             if not token:
                 return {"success": False, "data": None, "message": "Comando invalido."}
-            if token not in self._allowed:
+            if token not in self._allowed and not (token in ("cd", "chdir") and command.startswith("cd ")):
                 return {
                     "success": False,
                     "data": {"token": token, "allowed": sorted(self._allowed)},
@@ -230,12 +251,28 @@ class SystemAbility(Ability):
                 }
 
         timeout = float(params.get("timeout") or self._timeout)
+        session_id = str(params.get("_session_id", "default"))
         working_dir = str(params.get("working_dir") or params.get("cwd") or "").strip() or None
-        fire_and_forget = str(params.get("fire_and_forget") or "false").lower() in ("true", "1", "yes")
-
+        
         try:
             import os
-            cwd = working_dir if (working_dir and os.path.isdir(working_dir)) else None
+            cwd = working_dir if (working_dir and os.path.isdir(working_dir)) else self.session_cwds.get(session_id)
+            
+            # --- Intercept CD command for session state ---
+            if command.lower().startswith("cd ") or command.lower().startswith("chdir "):
+                cmd_parts = command.split(" ", 1)[1].strip()
+                if cmd_parts.lower().startswith("/d "):
+                    cmd_parts = cmd_parts[3:].strip()
+                new_dir = cmd_parts.strip('"').strip("'")
+                base_dir = cwd or os.getcwd()
+                resolved = os.path.abspath(os.path.join(base_dir, new_dir))
+                if os.path.isdir(resolved):
+                    self.session_cwds[session_id] = resolved
+                    return {"success": True, "message": f"Directorio cambiado a: {resolved}", "data": {"cwd": resolved}}
+                else:
+                    return {"success": False, "message": f"El directorio no existe: {resolved}"}
+            
+            fire_and_forget = str(params.get("fire_and_forget") or "false").lower() in ("true", "1", "yes")
 
             if fire_and_forget:
                 subprocess.Popen(command, shell=True, cwd=cwd,
@@ -289,6 +326,7 @@ class SystemAbility(Ability):
             return {"success": False, "data": None, "message": "Script de PowerShell vacio."}
 
         timeout = float(params.get("timeout") or self._timeout)
+        session_id = str(params.get("_session_id", "default"))
         fire_and_forget = str(params.get("fire_and_forget") or "false").lower() in ("true", "1", "yes")
         as_admin = str(params.get("as_admin") or "false").lower() in ("true", "1", "yes")
         working_dir = str(params.get("working_dir") or params.get("cwd") or "").strip() or None
@@ -304,7 +342,7 @@ class SystemAbility(Ability):
 
         try:
             import os
-            cwd = working_dir if (working_dir and os.path.isdir(working_dir)) else None
+            cwd = working_dir if (working_dir and os.path.isdir(working_dir)) else self.session_cwds.get(session_id)
 
             if fire_and_forget:
                 subprocess.Popen(ps_command, shell=True, cwd=cwd,

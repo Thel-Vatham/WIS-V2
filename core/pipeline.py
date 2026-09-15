@@ -171,7 +171,7 @@ class ActionPipeline:
         event_bus.emit("pipeline.new_path", { "session_id": session_id,"text": text[:80]})
         event_bus.emit("pipeline.path_start", { "session_id": session_id,"path": PATH_NEW, "text": text[:80]})
         result = await self._try_new(text, sensor_data, tools, known_skill=known_skill, session_id=session_id)
-        return self._finalize(result, PATH_NEW, success=result["success"])
+        return self._finalize(result, PATH_NEW, success=result["success"], session_id=session_id)
 
     # ---- Reflexive & Known -------------------------------------------------
 
@@ -781,6 +781,9 @@ class ActionPipeline:
                 k: v for k, v in call.items()
                 if k not in ("skill", "name", "action", "type", "domain", "tool", "params", "arguments")
             }
+        
+        # Inject context for abilities that support multitenancy
+        params["_session_id"] = session_id
 
         if "command" in call and "command" not in params:
             params["command"] = call["command"]
@@ -850,7 +853,7 @@ class ActionPipeline:
         return {"ok": success, "name": skill_name or action, "action": action, "output": output}
 
     @staticmethod
-    def _finalize(result: Dict[str, Any], path: str, success: bool) -> Dict[str, Any]:
+    def _finalize(result: Dict[str, Any], path: str, success: bool, session_id: str = "default") -> Dict[str, Any]:
         final_dict = {
             "response": result.get("response", ""),
             "calls": result.get("calls", []),

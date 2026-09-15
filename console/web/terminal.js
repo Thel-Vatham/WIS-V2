@@ -33,6 +33,13 @@ class TerminalInstance {
     }
 
     setupEvents() {
+        this.title.addEventListener("dblclick", () => {
+            const newName = prompt("Nuevo nombre para esta terminal:", this.sessionId);
+            if (newName && newName.trim() && newName.trim() !== this.sessionId) {
+                this.manager.renameTerminal(this.sessionId, newName.trim().replace(/\s+/g, '-'));
+            }
+        });
+
         this.input.addEventListener("keydown", (e) => {
             if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
@@ -151,7 +158,12 @@ class TerminalManager {
         this.template = document.getElementById("terminal-template");
         
         this.btnNewTerm = document.getElementById("btn-new-term");
-        this.btnNewTerm.addEventListener("click", () => this.createTerminal());
+        this.btnNewTerm.addEventListener("click", () => {
+            const name = prompt("Ingrese el nombre del proyecto o terminal:", this.generateId());
+            if (name && name.trim()) {
+                this.createTerminal(name.trim().replace(/\s+/g, '-'));
+            }
+        });
         
         // Dock drag drop zone
         this.dock.addEventListener("dragover", e => e.preventDefault());
@@ -175,6 +187,24 @@ class TerminalManager {
             this.activeSessionId = sessionId;
         }
     }
+    
+    saveState() {
+        const ids = Array.from(this.instances.keys());
+        localStorage.setItem("wis-terminals", JSON.stringify(ids));
+    }
+    
+    restoreState() {
+        try {
+            const saved = JSON.parse(localStorage.getItem("wis-terminals"));
+            if (Array.isArray(saved) && saved.length > 0) {
+                for (const sid of saved) {
+                    this.createTerminal(sid);
+                }
+                return true; // Successfully restored
+            }
+        } catch(e) {}
+        return false;
+    }
 
     generateId() {
         return "term-" + Math.random().toString(36).substring(2, 6);
@@ -188,6 +218,7 @@ class TerminalManager {
         this.instances.set(sid, inst);
         this.grid.appendChild(inst.element);
         this.updateGridSplit();
+        this.saveState();
         return inst;
     }
 
@@ -220,6 +251,38 @@ class TerminalManager {
 
         this.instances.delete(sid);
         this.updateGridSplit();
+        this.saveState();
+    }
+
+    renameTerminal(oldSid, newSid) {
+        if (!this.instances.has(oldSid) || this.instances.has(newSid)) return;
+        
+        const inst = this.instances.get(oldSid);
+        this.instances.delete(oldSid);
+        this.instances.set(newSid, inst);
+        
+        inst.sessionId = newSid;
+        inst.element.dataset.sessionId = newSid;
+        inst.title.textContent = newSid;
+        
+        const tab = this.dock.querySelector(`[data-session-id="${oldSid}"]`);
+        if (tab) {
+            tab.dataset.sessionId = newSid;
+            tab.textContent = newSid;
+        }
+        
+        if (this.activeSessionId === oldSid) {
+            this.activeSessionId = newSid;
+        }
+        
+        this.saveState();
+        if (window.ws && window.ws.readyState === WebSocket.OPEN) {
+            window.ws.send(JSON.stringify({
+                type: "rename_session",
+                session_id: oldSid,
+                new_id: newSid
+            }));
+        }
     }
 
     minimizeToDock(sid) {

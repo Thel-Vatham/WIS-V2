@@ -234,6 +234,12 @@ class Memory:
             messages.append({"role": "assistant", "content": turn.get("response", "")})
         return messages
 
+    def rename_session(self, old_id: str, new_id: str) -> None:
+        """Migra la memoria de la sesión antigua a la nueva."""
+        with self._lock:
+            if old_id in self._short_term and old_id != new_id:
+                self._short_term[new_id] = self._short_term.pop(old_id)
+
     async def compress_history(self, local_client: Any, session_id: str = "default") -> None:
         """Comprime el historial corto usando el LLM local para ahorrar contexto."""
         with self._lock:

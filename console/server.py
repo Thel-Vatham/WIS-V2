@@ -993,6 +993,18 @@ def create_app(
                 msg_type = payload.get("type", "message")
                 text = payload.get("text") or payload.get("message") or ""
 
+                if msg_type == "rename_session":
+                    old_id = payload.get("session_id")
+                    new_id = payload.get("new_id")
+                    if old_id and new_id and old_id != new_id:
+                        # Migrate memory
+                        core.memory.rename_session(old_id, new_id)
+                        # Migrate system ability CWDs
+                        sys_ability = core.abilities.get("system") if hasattr(core, "abilities") else None
+                        if sys_ability and hasattr(sys_ability, "rename_session"):
+                            sys_ability.rename_session(old_id, new_id)
+                    continue
+
                 if msg_type != "message" or not text:
                     continue
 

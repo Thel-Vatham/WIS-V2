@@ -24,7 +24,7 @@ const State = {
     pendingApproval: null,
 
     // TTS Control
-    currentAudio: null,
+    currentTtsSession: 0,
     ttsInterrupted: false,
 };
 
@@ -68,7 +68,9 @@ function cacheDom() {
     // Initialize Terminal Manager
     window.parseMarkdown = formatMarkdown;
     window.terminalManager = new TerminalManager();
-    window.terminalManager.createTerminal(); // Initial terminal
+    if (!window.terminalManager.restoreState()) {
+        window.terminalManager.createTerminal(); // Initial terminal if none saved
+    }
     
     // Fallback file input if needed globally
     Dom.fileInput = document.getElementById("global-file-input");
@@ -834,7 +836,7 @@ window.sendChatRequest = async function(text, terminalInstance) {
         if (data.response) {
             terminalInstance.appendAssistantMessage(data.response);
             if (State.ttsEnabled) {
-                playTtsStream(data.response);
+                playTtsAudio(data.response);
             }
         }
         
@@ -938,7 +940,7 @@ async function fetchTtsBlob(sentence) {
 }
 
 function stopTtsAudio() {
-    State.ttsInterrupted = true;
+    State.currentTtsSession++;
     if (State.currentAudio) {
         State.currentAudio.pause();
         State.currentAudio.currentTime = 0;
@@ -948,7 +950,8 @@ function stopTtsAudio() {
 
 async function playTtsAudio(text) {
     try {
-        State.ttsInterrupted = false;
+        stopTtsAudio();
+        const mySession = State.currentTtsSession;
 
         // WIS Rule: direct and concise. Only read the first relevant chunk (1 or 2 sentences max)
         let sentences = (text.match(/[^.!?\n]+(?:[.!?\n]+|$)/g) || [text])
@@ -962,15 +965,15 @@ async function playTtsAudio(text) {
         let nextBlobPromise = fetchTtsBlob(sentences[0]);
         
         for (let i = 0; i < sentences.length; i++) {
-            if (State.ttsInterrupted) break;
+            if (State.currentTtsSession !== mySession) break;
 
             const blob = await nextBlobPromise;
             
-            if (i + 1 < sentences.length && !State.ttsInterrupted) {
+            if (i + 1 < sentences.length && State.currentTtsSession === mySession) {
                 nextBlobPromise = fetchTtsBlob(sentences[i+1]);
             }
             
-            if (blob && !State.ttsInterrupted) {
+            if (blob && State.currentTtsSession === mySession) {
                 const url = URL.createObjectURL(blob);
                 const audio = new Audio(url);
                 State.currentAudio = audio;
