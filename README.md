@@ -1,8 +1,8 @@
 # WIS - Wisdom Integrated System (v3.0)
 
 <p align="center">
-  <b>Living Autonomous Companion & Cognitive Operating System Core for Developers</b><br>
-  <i>Deep ReAct Loop, AVRORA Developer Engine, Multi-Path Cognition, Hardware Topologies & Hacker Terminal</i>
+  <b>Sistema de Integración Cognitiva y Operativa para Desarrolladores</b><br>
+  <i>Deep ReAct Loop, Motor de Automatización AVRORA, Cognición Multirruta, Topologías de Hardware e Interfaz de Usuario Avanzada</i>
 </p>
 
 > 📚 **Documentación de Ingeniería Completa:** Consulta la carpeta [`ingenieria/`](file:///d:/WIS/ingenieria/00_INDICE_Y_RESUMEN_EJECUTIVO.md) para acceder a los diagramas de arquitectura, matriz de 19 habilidades, protocolos de hardware y manual de despliegue.
@@ -76,15 +76,24 @@ WIS/
 │   ├── pipeline.py         # Main cognition & execution pipeline
 │   ├── proactivity.py      # Proactive trigger engine
 │   ├── reasoning.py        # Planning & chain-of-thought engine
-│   ├── safety.py           # Aegis safety & permission guardrails
+│   ├── safety.py           # Módulo de seguridad y validación de permisos
 │   ├── skill_memory.py     # Reflex skill & action cache
 │   └── telemetry.py        # Real-time telemetry ingestion engine
 ├── Data/                   # Local databases and runtime state (git ignored)
+├── docs/                   # Technical documentation
+├── ingenieria/             # Engineering dossier (architecture & operations)
+├── logs/                   # Runtime logs (git ignored)
+├── models/                 # Local LLM + detection assets (git ignored)
+│   └── detection/          # YOLOv4-tiny COCO assets used by abilities/vision.py
+├── projects/               # User workspaces created from the console
+├── tests/                  # Unit & integration test suite
+├── venv/                   # Python virtual environment (git ignored)
+├── old/                    # Archived experiments, demos & legacy projects (git ignored)
 ├── Keys.env.template       # Environment keys template
 ├── main.py                 # Entry point (CLI & GUI server)
 ├── mock_server.py          # Testing & mock hardware server
 ├── requirements.txt        # Python dependency manifest
-└── setup.bat               # Automated one-click Windows setup
+└── instalar.bat            # Automated one-click Windows setup
 ```
 
 ---
@@ -132,9 +141,9 @@ venv\Scripts\python.exe main.py --cli
 
 ---
 
-## 🛡️ Safety & Security (Aegis)
+## 🛡️ Seguridad y Control de Acceso
 
-WIS features built-in security profiles configured in `config/settings.json`:
+El sistema cuenta con perfiles de seguridad integrados configurados en `config/settings.json`:
 - **Privileged Mode:** Full autonomous operation with security boundary checking.
 - **Strict Mode:** Requires manual confirmation for sensitive actions (filesystem write/delete, shell execution).
 
@@ -142,4 +151,9 @@ WIS features built-in security profiles configured in `config/settings.json`:
 
 ## 📄 License
 
-This project is developed for cognitive robotics, hardware integration, and autonomous assistance. All rights reserved.
+Este proyecto está licenciado bajo la **GNU General Public License v3.0 (GPLv3)**.
+
+Desarrollado por el Grupo de Investigación DIGITI, Universidad Distrital Francisco José de Caldas. 
+Al estar bajo GPLv3, cualquier software derivado, modificado o basado en este código fuente debe distribuirse bajo los mismos términos de esta licencia, asegurando que el proyecto y sus mejoras permanezcan abiertos y gratuitos para la comunidad.
+
+Para más detalles, consulta el archivo [LICENSE](LICENSE) incluido en la raíz de este repositorio.
