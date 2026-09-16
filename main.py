@@ -193,7 +193,12 @@ def build_core(settings: dict) -> dict:
 
     # --- Memory ---
     mnemonic = Memory(db_path=db_path)
-    logger.info(f"Memory ready (history: {len(mnemonic.get_history())} turns)")
+    # La consola principal ya NO es transitoria: su historial se guarda en la
+    # tabla episodic y se restaura desde disco. Limpiar aqui provocaba que WIS
+    # olvidara toda la conversacion en cada reinicio.
+    logger.info(
+        f"Memory ready (restored {len(mnemonic.get_history('default'))} turns)"
+    )
 
     # --- Hardware & Procedural Memory ---
     from core.hardware_memory import HardwareMemory
@@ -256,19 +261,8 @@ def build_core(settings: dict) -> dict:
         proactivity.start_daemon()
         logger.info(f"ProactivityEngine started (interval={check_interval}s)")
 
-    # --- Goal Manager (Orchestrator) ---
-    goal_manager = None
-    from core.goal_manager import GoalManager
     from core.task_store import TaskStore
-    gm_cfg = settings.get("goal_manager", {})
     task_store = TaskStore(db_path=ROOT_DIR / "Data" / "wis_tasks.db")
-    goal_manager = GoalManager(
-        pipeline=praxis,
-        llm_client=nexus,
-        task_store=task_store,
-        eval_interval=gm_cfg.get("eval_interval_s", 30.0),
-    )
-    logger.info("GoalManager ready (orchestrator con planificación y walkthrough)")
 
     # --- TelemetryEngine → Pipeline (Autonomous Loop) -----------------------
     # When a sensor threshold fires, pipeline acts autonomously without user input.
@@ -280,15 +274,7 @@ def build_core(settings: dict) -> dict:
     _eb.subscribe("telemetry.threshold_triggered", _on_telemetry_trigger)
     logger.info("TelemetryEngine → Pipeline autonomous loop: CONNECTED")
 
-    # --- Long Horizon Task Engine (Daemon) ---
-    from core.long_horizon import LongHorizonEngine
-    long_horizon = LongHorizonEngine(
-        data_dir=ROOT_DIR / "Data",
-        pipeline=praxis,
-        llm_client=nexus,
-    )
-    long_horizon.start()
-    logger.info("LongHorizonEngine daemon started (persistent long tasks)")
+    # GoalManager and LongHorizonEngine have been purged in favor of direct execution.
 
     return {
         "persona": persona,
@@ -301,8 +287,7 @@ def build_core(settings: dict) -> dict:
         "registry": registry,
         "praxis": praxis,
         "proactivity": proactivity,
-        "goal_manager": goal_manager,
-        "long_horizon": long_horizon,
+
         "task_store": task_store,
         "hardware_memory": hw_vault,
     }
@@ -411,16 +396,10 @@ def _register_default_abilities(registry: AbilityRegistry, settings: dict, hw_va
 
     # Hardware protocols (Serial/UART + MQTT)
     try:
-        from abilities.serial_comm import SerialCommAbility
-        registry.register(SerialCommAbility())
+        from abilities.persistent_terminal import PersistentTerminalAbility
+        registry.register(PersistentTerminalAbility())
     except Exception as e:
-        logger.warning(f"SerialCommAbility not loaded: {e}")
-
-    try:
-        from abilities.mqtt_comm import MQTTCommAbility
-        registry.register(MQTTCommAbility())
-    except Exception as e:
-        logger.warning(f"MQTTCommAbility not loaded: {e}")
+        logger.warning(f"PersistentTerminalAbility not loaded: {e}")
 
     # Microcontroller & Embedded Toolchains (PlatformIO, Arduino-CLI, esptool)
     try:
@@ -429,12 +408,18 @@ def _register_default_abilities(registry: AbilityRegistry, settings: dict, hw_va
     except Exception as e:
         logger.warning(f"ToolchainAbility not loaded: {e}")
 
+    # NAO robot control (bridge lives in the isolated project Project/nao)
+    try:
+        from abilities.nao_robot import NAORobotAbility
+        registry.register(NAORobotAbility())
+    except Exception as e:
+        logger.warning(f"NAORobotAbility not loaded: {e}")
+
     # Custom abilities generated dynamically (robots, IoT, etc.)
     try:
         registry.load_custom_directory()
     except Exception as e:
         logger.warning(f"Custom abilities not loaded: {e}")
-
 
 async def _cli_session(praxis: ActionPipeline, goal_manager) -> None:
     """Bucle interactivo CLI ejecutado dentro de un event loop."""
@@ -567,10 +552,15 @@ def setup_terminal_trace() -> None:
             user_msg = data.get("user_message", "")
             model = data.get("model", "")
             history = data.get("history_turns", 0)
+            
+            display_msg = user_msg
+            if len(display_msg) > 500:
+                display_msg = display_msg[:500] + "\n... [TRUNCATED FOR TERMINAL]"
+
             trace_logger.info(
                 "LLM_REQUEST | model=%s | history_turns=%d\n"
                 "--- USER MESSAGE START ---\n%s\n--- USER MESSAGE END ---",
-                model, history, user_msg,
+                model, history, display_msg,
             )
 
         elif evt == "reasoning.response":
@@ -592,9 +582,12 @@ def setup_terminal_trace() -> None:
 
         elif evt == "pipeline.call_result":
             status = "SUCCESS" if data.get("success") else "FAILED"
+            output_str = json.dumps(data.get("output", {}), ensure_ascii=False, default=str)
+            if len(output_str) > 500:
+                output_str = output_str[:500] + "... [TRUNCATED FOR TERMINAL]"
             trace_logger.info("TOOL_RESULT | %s | %s.%s | output=%s",
                               status, data.get("skill"), data.get("action"),
-                              json.dumps(data.get("output", {}), ensure_ascii=False, default=str))
+                              output_str)
 
         elif evt == "pipeline.call_blocked":
             trace_logger.warning("BLOCKED | %s | reason=%s", data.get("name"), data.get("reason"))
@@ -653,7 +646,7 @@ def main() -> None:
     atexit.register(close_core, core)
 
     if "--cli" in sys.argv:
-        run_cli_session(core["praxis"], core["goal_manager"])
+        run_cli_session(core["praxis"], core.get("goal_manager"))
         return
 
     # --- Arrancar consola ---
@@ -668,6 +661,7 @@ def main() -> None:
     from console.server import WISCoreContainer, run_server, start_server_thread
 
     # --- PTT Service ---
+    ptt_service = None
     try:
         from core.ptt import PTTService
         ptt_service = PTTService(host=host, port=port, token=console_token, hotkey="f9")
@@ -683,17 +677,17 @@ def main() -> None:
         abilities=core["registry"],
         proactivity=core.get("proactivity"),
         aegis=core["aegis"],
-        goal_manager=core["goal_manager"],
-        long_horizon=core.get("long_horizon"),
+        task_store=core.get("task_store"),
     )
 
     if "--server" in sys.argv:
-        logger.info(f"Running standalone WIS web server on http://{host}:{port}/console/")
-        print(f"\n  WIS Server active at: http://{host}:{port}/console/")
-        print(f"  Console auth token: {console_token}\n")
+        logger.info("Running standalone WIS web server with dynamic port allocation")
+        print(f"\n  Console auth token: {console_token}\n")
         run_server(
             host=host, port=port, core=container,
             auth_token=console_token, cors_origins=cors_origins,
+            on_port=(lambda actual_port: setattr(ptt_service, "port", actual_port))
+            if ptt_service else None,
         )
         return
 
@@ -710,15 +704,19 @@ def main() -> None:
             core=container,
             auth_token=console_token,
             cors_origins=cors_origins,
+            on_port=(lambda actual_port: setattr(ptt_service, "port", actual_port))
+            if ptt_service else None,
         )
     except Exception as e:
         logger.warning(f"pywebview failed ({e}), falling back to browser.")
-        start_server_thread(
+        stop_server = start_server_thread(
             host=host, port=port, core=container,
             auth_token=console_token, cors_origins=cors_origins,
         )
+        actual_port = getattr(stop_server, "port", port)
+        ptt_service.port = actual_port
         import webbrowser
-        webbrowser.open(url)
+        webbrowser.open(f"http://{host}:{actual_port}/console/")
         # Mantiene el proceso vivo.
         try:
             import time

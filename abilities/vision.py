@@ -40,6 +40,12 @@ class VisionAbility(Ability):
         self._florence_processor = None
         self._florence_device = None
 
+        # YOLOv4-tiny (COCO, 80 clases) para deteccion multi-objeto (lazy load).
+        # El modelo VOC de 20 clases no conoce 'cell phone' ni 'pen' y en la
+        # practica solo supera el umbral con 'person'.
+        self._yolo_net = None
+        self._yolo_names: list = []
+
     # ------------------------------------------------------------------ #
     # Metadatos requeridos por Ability
     # ------------------------------------------------------------------ #
@@ -287,6 +293,8 @@ class VisionAbility(Ability):
             return await self._action_capture(params)
         if action == "detect_faces":
             return await self._action_detect_faces(params)
+        if action in ("detect_objects", "detect_all_objects", "see", "what_do_you_see"):
+            return await self._action_detect_objects(params)
         if action == "describe":
             return await self._action_describe(params)
         if action in ("analyze_scene_vlm", "vlm", "analyze_vlm"):
@@ -355,6 +363,96 @@ class VisionAbility(Ability):
             "success": True,
             "data": {"count": len(faces), "faces": faces, "annotated_path": annotated_path},
             "message": f"Se detectaron {len(faces)} rostro(s).",
+        }
+
+    async def _action_detect_objects(self, params: dict) -> dict:
+        """Captura (o lee) una imagen y devuelve TODOS los objetos detectados.
+
+        Usa YOLOv4-tiny entrenado en COCO (80 clases: person, bottle, cup,
+        cell phone, keyboard, laptop...), no el VOC de 20 clases. Ese cambio es
+        justamente lo que permite reportar varios objetos a la vez en lugar de
+        responder siempre "person".
+        """
+        confidence = float(params.get("confidence") or 0.25)
+        nms_threshold = float(params.get("nms") or 0.4)
+        image_path = params.get("image_path")
+
+        frame = None
+        cv2_module = None
+        if image_path and os.path.exists(image_path):
+            cv2_module = self._import_cv2()
+            if cv2_module is not None:
+                frame = await asyncio.to_thread(cv2_module.imread, image_path)
+        if frame is None:
+            cv2_module, frame = await asyncio.to_thread(self._capture_sync)
+
+        if cv2_module is None:
+            return {"success": False, "data": None, "message": "OpenCV (cv2) no esta disponible."}
+        if frame is None:
+            return {
+                "success": False,
+                "data": None,
+                "message": "No se pudo capturar imagen (sin camara o dispositivo ocupado).",
+            }
+
+        try:
+            results = await asyncio.to_thread(
+                self._detect_objects_sync, cv2_module, frame, confidence, nms_threshold
+            )
+        except Exception as exc:
+            return {"success": False, "data": None, "message": f"Deteccion fallida: {exc}"}
+
+        if not self._yolo_names:
+            return {
+                "success": False,
+                "data": {"count": 0, "objects": []},
+                "message": (
+                    "Modelo de deteccion multi-objeto no disponible "
+                    "(faltan models/detection/yolov4-tiny.cfg, .weights o coco.names)."
+                ),
+            }
+
+        annotated_path = None
+        if params.get("save", False) and results:
+            def _annotate():
+                annotated = frame.copy()
+                for item in results:
+                    box = item["box"]
+                    cv2_module.rectangle(
+                        annotated, (box["x"], box["y"]), (box["x2"], box["y2"]),
+                        (0, 255, 0), 2,
+                    )
+                    cv2_module.putText(
+                        annotated,
+                        f"{item['label']} {item['confidence'] * 100:.0f}%",
+                        (box["x"], max(16, box["y"] - 6)),
+                        cv2_module.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 0), 2,
+                    )
+                return self._save_temp_image(cv2_module, annotated)
+
+            try:
+                annotated_path = await asyncio.to_thread(_annotate)
+            except Exception:
+                annotated_path = None
+
+        summary = self._summarize_objects(results)
+        if results:
+            message = f"Se detectaron {len(results)} objeto(s): {summary}."
+        else:
+            message = "No se detecto ningun objeto reconocible por encima del umbral."
+
+        return {
+            "success": True,
+            "data": {
+                "count": len(results),
+                "summary": summary or "none",
+                "objects": results,
+                "labels": sorted({r["label"] for r in results}),
+                "confidence_threshold": confidence,
+                "annotated_path": annotated_path,
+                "image_path": image_path,
+            },
+            "message": message,
         }
 
     async def _action_describe(self, params: dict) -> dict:
@@ -489,6 +587,130 @@ class VisionAbility(Ability):
             return {"success": False, "data": None, "message": f"Florence-2 grounding failed: {exc}"}
 
     # ------------------------------------------------------------------ #
+    # Deteccion multi-objeto (YOLOv4-tiny + COCO 80 clases)
+    # ------------------------------------------------------------------ #
+    @staticmethod
+    def _yolo_asset_dir() -> str:
+        """Carpeta con yolov4-tiny.cfg/.weights y coco.names.
+
+        Los assets viven en `models/detection` (raiz limpia). Se conserva
+        `object_detector/` como respaldo por compatibilidad con instalaciones
+        antiguas que todavia tengan la carpeta en la raiz.
+        """
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        preferred = os.path.join(root, "models", "detection")
+        required = ("yolov4-tiny.cfg", "yolov4-tiny.weights", "coco.names")
+        if all(os.path.isfile(os.path.join(preferred, n)) for n in required):
+            return preferred
+        return os.path.join(root, "object_detector")
+
+    def _load_yolo_sync(self, cv2_module):
+        """Carga YOLOv4-tiny (COCO). Devuelve (net, nombres) o (None, [])."""
+        if self._yolo_net is not None and self._yolo_names:
+            return self._yolo_net, self._yolo_names
+
+        base = self._yolo_asset_dir()
+        cfg = os.path.join(base, "yolov4-tiny.cfg")
+        weights = os.path.join(base, "yolov4-tiny.weights")
+        names_path = os.path.join(base, "coco.names")
+        if not all(os.path.isfile(p) for p in (cfg, weights, names_path)):
+            return None, []
+        try:
+            with open(names_path, "r", encoding="utf-8") as fh:
+                names = [line.strip() for line in fh if line.strip()]
+            net = cv2_module.dnn.readNetFromDarknet(cfg, weights)
+            net.setPreferableBackend(cv2_module.dnn.DNN_BACKEND_OPENCV)
+            net.setPreferableTarget(cv2_module.dnn.DNN_TARGET_CPU)
+        except Exception:
+            return None, []
+
+        self._yolo_net = net
+        self._yolo_names = names
+        return net, names
+
+    def _detect_objects_sync(
+        self,
+        cv2_module,
+        frame,
+        confidence: float = 0.25,
+        nms_threshold: float = 0.4,
+    ) -> list:
+        """Detecta TODOS los objetos COCO de la escena (multi-clase, multi-objeto).
+
+        Antes solo existia `detect_faces`, asi que ante "que ves?" el agente
+        respondia con la unica clase que el modelo VOC superaba de umbral.
+        """
+        import numpy as np  # type: ignore
+
+        net, names = self._load_yolo_sync(cv2_module)
+        if net is None:
+            return []
+
+        height, width = frame.shape[:2]
+        blob = cv2_module.dnn.blobFromImage(
+            frame, 1 / 255.0, (416, 416), swapRB=True, crop=False
+        )
+        net.setInput(blob)
+        outputs = net.forward(net.getUnconnectedOutLayersNames())
+
+        boxes: list = []
+        confidences: list = []
+        class_ids: list = []
+        for output in outputs:
+            for detection in output:
+                scores = detection[5:]
+                class_id = int(np.argmax(scores))
+                conf = float(scores[class_id])
+                if conf < confidence:
+                    continue
+                cx, cy, bw, bh = (
+                    float(detection[0]) * width,
+                    float(detection[1]) * height,
+                    float(detection[2]) * width,
+                    float(detection[3]) * height,
+                )
+                boxes.append([
+                    int(cx - bw / 2), int(cy - bh / 2), int(bw), int(bh),
+                ])
+                confidences.append(conf)
+                class_ids.append(class_id)
+
+        if not boxes:
+            return []
+
+        keep = cv2_module.dnn.NMSBoxes(boxes, confidences, confidence, nms_threshold)
+        if len(keep) == 0:
+            return []
+
+        results = []
+        for idx in np.array(keep).flatten():
+            x, y, bw, bh = boxes[idx]
+            label = names[class_ids[idx]] if class_ids[idx] < len(names) else f"id{class_ids[idx]}"
+            results.append({
+                "label": label,
+                "confidence": round(float(confidences[idx]), 3),
+                "box": {
+                    "x": max(0, x), "y": max(0, y),
+                    "w": int(bw), "h": int(bh),
+                    "x2": min(width - 1, x + bw), "y2": min(height - 1, y + bh),
+                },
+            })
+        # Ordenar por confianza desc para que el resumen priorice lo evidente.
+        results.sort(key=lambda r: r["confidence"], reverse=True)
+        return results
+
+    @staticmethod
+    def _summarize_objects(results: list) -> str:
+        """Resumen legible y contado: '2 bottle, 1 person, 1 cell phone'."""
+        counts: dict = {}
+        for item in results:
+            counts[item["label"]] = counts.get(item["label"], 0) + 1
+        ordered = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
+        return ", ".join(
+            f"{count} {label}" if count > 1 else label for label, count in ordered
+        )
+
+    # ------------------------------------------------------------------ #
     # Esquema para el LLM
     # ------------------------------------------------------------------ #
     def get_schema(self) -> list:
@@ -502,6 +724,21 @@ class VisionAbility(Ability):
                 "action": "detect_faces",
                 "description": "Capture a photo and detect human faces using a Haar cascade.",
                 "params": {"save": "bool (optional) - save annotated image with boxes"},
+            },
+            {
+                "action": "detect_objects",
+                "description": (
+                    "Capture a photo and detect ALL objects in the scene (COCO 80 classes: "
+                    "person, bottle, cup, cell phone, keyboard, laptop, book...). Use this "
+                    "whenever the user asks what you see / what is in front of you. Returns "
+                    "every detected object with its label, confidence and bounding box."
+                ),
+                "params": {
+                    "confidence": "float (optional, default 0.25) - minimum confidence threshold.",
+                    "nms": "float (optional, default 0.4) - non-maximum suppression IoU threshold.",
+                    "save": "bool (optional) - save an annotated copy with all boxes drawn.",
+                    "image_path": "string (optional) - path to a static image instead of live camera.",
+                },
             },
             {
                 "action": "describe",
