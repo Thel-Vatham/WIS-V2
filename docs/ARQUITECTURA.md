@@ -12,7 +12,7 @@ flowchart TB
         direction TB
         PW["pywebview Frameless Window<br>(GPU Acelerada, CRT scanlines, 3 columnas)"]
         MW["Motor Multi-Ventana Nativo<br>(open_render_window / /api/render)"]
-        FE["Frontend Hacker Terminal<br>(WebSocket /ws, Event Bus Consumer, TTS/STT)"]
+        FE["Interfaz Gráfica de Usuario (GUI)<br>(WebSocket /ws, Event Bus Consumer, TTS/STT)"]
         PW <--> FE
         PW --> MW
     end
@@ -32,7 +32,7 @@ flowchart TB
         direction TB
         PL["ActionPipeline (core/pipeline.py)<br>ReAct Multi-step Loop (3 rutas cognitivas)"]
         RE["ReasoningEngine / Cortex (core/reasoning.py)"]
-        AE["Aegis SafetyPolicy (core/safety.py)<br>Modos: Secure / Privileged"]
+        AE["Módulo de Seguridad (core/safety.py)<br>Modos: Secure / Privileged"]
         GM["GoalManager (core/goal_manager.py)<br>Orquestador de Metas Cortas"]
         LH["LongHorizonEngine (core/long_horizon.py)<br>Daemon en 2° plano + Persistencia + Re-plan"]
         MEM["Memoria Episódica & Mnemónica (FAISS + SQLite)"]
@@ -98,7 +98,7 @@ flowchart TB
   1. **Fast-Path:** Acciones reflejas de baja latencia basadas en memoria de hardware.
   2. **Known-Path:** Tareas conocidas cacheadas en `SkillMemory`.
   3. **New-Path:** Razonamiento profundo multi-paso con descomposición de planes, ejecución de herramientas y autocorrección de fallos.
-- **`Aegis Safety Policy` ([core/safety.py](file:///d:/WIS/core/safety.py)):**
+- **`Módulo de Seguridad` ([core/safety.py](file:///d:/WIS/core/safety.py)):**
   Políticas de contención y seguridad. Modos `secure` (requiere aprobación explícita del operador para acciones críticas) y `privileged` (autónomo para automatización total de escritorio).
 - **`Memory` & `Mnemonic` ([core/memory.py](file:///d:/WIS/core/memory.py)):**
   Base de datos híbrida basada en SQLite y vector store FAISS con embeddings locales (`fastembed` / `all-MiniLM-L6-v2`) para retención de hechos a largo plazo.

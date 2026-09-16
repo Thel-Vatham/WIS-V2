@@ -281,7 +281,8 @@ class FileManagerAbility(Ability):
             if path.is_file():
                 files_to_search.append(path)
             else:
-                for root, _, filenames in os.walk(path):
+                for root, dirs, filenames in os.walk(path):
+                    dirs[:] = [d for d in dirs if d not in (".git", "venv", "env", "node_modules", "__pycache__", ".pytest_cache")]
                     for fname in filenames:
                         fpath = Path(root) / fname
                         if any(fname.endswith(ext) for ext in extensions):

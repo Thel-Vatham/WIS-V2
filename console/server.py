@@ -36,6 +36,7 @@ logger = logging.getLogger("wis.console.server")
 
 # Set of active WebSockets
 _active_websockets: set[WebSocket] = set()
+_websocket_sessions: Dict[WebSocket, set[str]] = {}
 
 
 # ---------------------------------------------------------------------------
@@ -106,13 +107,16 @@ def verify_ws_token(token: Optional[str]) -> bool:
 
 
 def broadcast_event(event_name: str, payload: Dict[str, Any]) -> None:
-    """Retransmite eventos del event_bus a todos los clientes WebSocket."""
+    """Retransmite eventos globales o solo a los clientes de la sesion."""
     if not _active_websockets:
         return
     msg = json.dumps({"type": "event_bus", "event": event_name, "data": payload}, default=str)
     try:
         loop = asyncio.get_running_loop()
+        session_id = payload.get("session_id")
         for ws in list(_active_websockets):
+            if session_id and session_id not in _websocket_sessions.get(ws, set()):
+                continue
             # Verificar que el WebSocket siga conectado antes de enviar.
             # Esto previene el error 'send after close' cuando un cliente
             # se desconecta pero el bus sigue emitiendo eventos.
@@ -174,8 +178,7 @@ class WISCoreContainer:
         abilities: Any = None,
         proactivity: Any = None,
         aegis: Any = None,
-        goal_manager: Any = None,
-        long_horizon: Any = None,
+        task_store: Any = None,
     ) -> None:
         self.praxis = praxis
         self.cortex = cortex
@@ -183,8 +186,7 @@ class WISCoreContainer:
         self.abilities = abilities
         self.proactivity = proactivity
         self.aegis = aegis
-        self.goal_manager = goal_manager
-        self.long_horizon = long_horizon
+        self.task_store = task_store
 
 
 # Contenedor global por defecto; se reemplaza al arrancar la app.
@@ -222,6 +224,8 @@ class ChatResponse(BaseModel):
     results: List[Any] = []
     success: bool = True
     path: Optional[str] = None
+    # True cuando el operador aborto el turno cognitivo desde la consola.
+    cancelled: bool = False
 
 
 class GoalCreateRequest(BaseModel):
@@ -230,6 +234,7 @@ class GoalCreateRequest(BaseModel):
     text: str
     priority: int = 5
     deadline: str = ""
+    session_id: str = "default"
 
 
 class LongHorizonCreateRequest(BaseModel):
@@ -241,12 +246,19 @@ class LongHorizonCreateRequest(BaseModel):
 
 
 class RenderRequest(BaseModel):
-    """Peticion para renderizar contenido visual en ventana emergente."""
+    """Peticion para renderizar contenido visual en ventana emergente.
+
+    `render_id` identifica la ventana: reutilizarlo actualiza la misma ventana.
+    Omitirlo crea una ventana nueva, permitiendo a cada sesion abrir tantas
+    como necesite.
+    """
 
     html: str
     title: str = "WIS Render"
     width: int = 800
     height: int = 600
+    render_id: Optional[str] = None
+    session_id: str = "default"
 
 
 # ---------------------------------------------------------------------------
@@ -509,11 +521,31 @@ def create_app(
 
             # Ruta sincrona / asincrona clasica.
             sensor_data = gather_system_context()
-            raw = await _maybe_await(core.praxis.process(
-                req.message, 
-                sensor_data=sensor_data, 
-                session_id=req.session_id
-            ))
+            # El turno se ejecuta en su propio task para que pipeline.cancel()
+            # pueda abortarlo sin tumbar el handler HTTP ni la sesion.
+            turn_task = asyncio.create_task(
+                _maybe_await(core.praxis.process(
+                    req.message,
+                    sensor_data=sensor_data,
+                    session_id=req.session_id
+                ))
+            )
+            try:
+                raw = await asyncio.shield(turn_task)
+            except asyncio.CancelledError:
+                if turn_task.cancelled():
+                    logger.info(
+                        "Turno cognitivo cancelado por el operador (session=%s).",
+                        req.session_id,
+                    )
+                    return ChatResponse(
+                        response="Task cancelled by operator.",
+                        success=False,
+                        cancelled=True,
+                    )
+                # El cliente corto la conexion: no dejar el turno huerfano.
+                turn_task.cancel()
+                raise
             data = _normalize_response(raw)
             return ChatResponse(**data)
         except HTTPException:
@@ -588,6 +620,109 @@ def create_app(
         """Comprobacion simple de vida del servidor."""
         return {"status": "ok"}
 
+    @app.get("/api/health/detailed")
+    async def detailed_health(_: None = Depends(require_auth)) -> Dict[str, Any]:
+        """Estado operativo de terminales persistentes y workers."""
+        core = get_core()
+        terminal_health = {}
+        try:
+            terminal = core.abilities.get("persistent_terminal") if core.abilities else None
+            if terminal and hasattr(terminal, "health"):
+                terminal_health = terminal.health()
+        except Exception as exc:
+            terminal_health = {"error": str(exc)}
+        active_tasks = len(core.task_store.get_active_tasks()) if core.task_store else 0
+        degraded = bool(terminal_health.get("degraded"))
+        return {
+            "status": "degraded" if degraded else "ok",
+            "active_tasks": active_tasks,
+            "terminals": terminal_health,
+        }
+
+    @app.get("/api/sessions")
+    async def sessions(_: None = Depends(require_auth)) -> Dict[str, Any]:
+        """Devuelve las sesiones persistentes y sus directorios de trabajo."""
+        core = get_core()
+        system_ability = core.abilities.get("system") if core.abilities and hasattr(core.abilities, "get") else None
+        cwds = dict(getattr(system_ability, "session_cwds", {}) or {})
+        memory = getattr(core, "cortex", None)
+        session_ids = set(cwds)
+        if memory and hasattr(memory, "memory"):
+            session_ids.update(getattr(memory.memory, "_short_term", {}).keys())
+        return {
+            "sessions": [
+                {"session_id": session_id, "cwd": cwds.get(session_id)}
+                for session_id in sorted(session_ids)
+            ]
+        }
+
+    @app.get("/api/projects")
+    async def projects(_: None = Depends(require_auth)) -> Dict[str, Any]:
+        """Devuelve el arbol raiz de Projects enlazado con sesiones persistentes."""
+        projects_dir = Path(__file__).resolve().parent.parent / "Projects"
+        if not projects_dir.is_dir():
+            return {"projects": [], "root": str(projects_dir)}
+
+        core = get_core()
+        memory = getattr(getattr(core, "cortex", None), "memory", None)
+        system_ability = core.abilities.get("system") if core.abilities and hasattr(core.abilities, "get") else None
+        cwds = dict(getattr(system_ability, "session_cwds", {}) or {})
+        sessions = set(cwds)
+        if memory:
+            sessions.update(getattr(memory, "_short_term", {}).keys())
+
+        items = []
+        for item in sorted(projects_dir.iterdir(), key=lambda entry: entry.name.lower()):
+            if not item.is_dir():
+                continue
+            matching = next(
+                (
+                    sid for sid in sessions
+                    if sid == item.name
+                    or cwds.get(sid) == str(item)
+                    or (cwds.get(sid) and Path(cwds[sid]).name.lower() == item.name.lower())
+                ),
+                item.name,
+            )
+            history_count = 0
+            focused_count = 0
+            trace_count = 0
+            if memory:
+                try:
+                    history_count = len(memory.get_history(matching)) // 2
+                except Exception:
+                    history_count = 0
+            pipeline = getattr(core, "praxis", None)
+            if pipeline:
+                focused_count = len(getattr(pipeline, "_focused_contexts", {}).get(matching, {}))
+                trace_count = len(getattr(pipeline, "_last_trace", {}).get(matching, []))
+            items.append({
+                "name": item.name,
+                "path": str(item),
+                "session_id": matching,
+                "has_history": history_count > 0,
+                "history_count": history_count,
+                "focused_count": focused_count,
+                "trace_count": trace_count,
+            })
+        return {"root": str(projects_dir), "projects": items}
+
+    @app.get("/api/sessions/{session_id}/history")
+    async def session_history(session_id: str, _: None = Depends(require_auth)) -> Dict[str, Any]:
+        """Devuelve el historial conversacional persistido de una sesión."""
+        core = get_core()
+        mnemonic = getattr(getattr(core, "cortex", None), "memory", None)
+        history = mnemonic.get_history(session_id) if mnemonic else []
+        return {"history": history}
+
+    @app.delete("/api/sessions/{session_id}/history")
+    async def clear_session_history(session_id: str, _: None = Depends(require_auth)) -> Dict[str, Any]:
+        """Borra el historial de una sesión, conservando su CWD y procesos."""
+        mnemonic = getattr(getattr(get_core(), "cortex", None), "memory", None)
+        if mnemonic:
+            mnemonic.clear_session(session_id)
+        return {"success": True, "session_id": session_id}
+
     # --- Security Mode endpoints ---
 
     @app.get("/api/security/mode")
@@ -643,6 +778,30 @@ def create_app(
 
     # --- Approval endpoints ---
 
+    @app.post("/api/cancel")
+    async def cancel_turn(req: Request, _: None = Depends(require_auth)) -> Dict[str, Any]:
+        """Aborta el turno cognitivo en curso de una sesion.
+
+        El boton Cancel de la consola aborta el fetch del navegador, pero eso
+        solo corta la conexion HTTP: el turno cognitivo seguia ejecutandose en
+        el servidor y bloqueaba la sesion ("A cognitive turn is already
+        running..."). Este endpoint propaga el cancel al pipeline.
+        """
+        body: Dict[str, Any] = {}
+        try:
+            body = await req.json()
+        except Exception:
+            pass
+        session_id = str(body.get("session_id") or "default")
+        core = get_core()
+        praxis = getattr(core, "praxis", None)
+        if praxis is None or not hasattr(praxis, "cancel"):
+            return {"cancelled": False, "session_id": session_id, "reason": "unavailable"}
+        praxis.cancel(session_id)
+        # Notificar a la UI para que libere el estado "thinking" en otras pestanas.
+        broadcast_event("pipeline.cancel_requested", {"session_id": session_id})
+        return {"cancelled": True, "session_id": session_id}
+
     @app.post("/api/approve")
     async def approve_action(req: Request, _: None = Depends(require_auth)) -> Dict[str, bool]:
         body = {}
@@ -696,142 +855,116 @@ def create_app(
             return {"routines": []}
         return {"routines": core.proactivity.list_routines()}
 
-    @app.post("/api/goals")
-    async def create_goal(req: GoalCreateRequest, _: None = Depends(require_auth)) -> Dict[str, Any]:
-        """Crea un objetivo y genera su plan inmediatamente."""
+    # --- Task Runner endpoints ---
+    _active_workers = {}
+
+    @app.post("/api/tasks")
+    async def create_task(req: GoalCreateRequest, _: None = Depends(require_auth)) -> Dict[str, Any]:
+        """Crea una tarea asíncrona aislada y su proceso Worker."""
         core = get_core()
-        gm = getattr(core, "goal_manager", None)
-        if not gm:
-            raise HTTPException(status_code=503, detail="Goal manager no disponible.")
+        if not core.task_store:
+            raise HTTPException(status_code=503, detail="TaskStore no disponible.")
+        
         try:
-            goal = await gm.add_goal(
-                req.text,
-                priority=req.priority,
-                deadline=req.deadline,
-            )
-            return {"goal": goal}
+            task = core.task_store.create_task(req.text, session_id=req.session_id)
+            
+            import subprocess
+            import sys
+            from pathlib import Path
+            
+            worker_script = Path(__file__).resolve().parent.parent / "core" / "worker_process.py"
+            log_file = Path(__file__).resolve().parent.parent / "logs" / f"worker_{task['id']}.log"
+            
+            cmd = [
+                sys.executable,
+                str(worker_script),
+                "--task-id", task["id"],
+                "--text", req.text,
+                "--log", str(log_file),
+                "--session-id", task.get("session_id", req.session_id),
+            ]
+            
+            proc = subprocess.Popen(cmd)
+            _active_workers[task["id"]] = proc
+            core.task_store.update_task(task["id"], pid=proc.pid, attempts=1)
+            
+            return {"task": task}
         except Exception as exc:
-            logger.exception("Error creando goal: %s", exc)
+            logger.exception("Error creando task: %s", exc)
             raise HTTPException(status_code=500, detail=str(exc))
 
-    @app.get("/api/goals")
-    async def get_goals(_: None = Depends(require_auth)) -> Dict[str, Any]:
+    @app.get("/api/tasks")
+    async def get_tasks(_: None = Depends(require_auth)) -> Dict[str, Any]:
+        """Obtiene la lista de tareas activas/recientes."""
         core = get_core()
-        gm = getattr(core, "goal_manager", None)
-        if not gm:
-            return {"goals": []}
-        try:
-            active_goals = gm.task_store.list_goals()
-            goals_data = []
-            for g in active_goals[:20]:
-                subtasks = gm.task_store.get_subtasks(g["id"])
-                progress = gm.task_store.goal_progress(g["id"])
-                goals_data.append({
-                    "id": g["id"],
-                    "text": g["text"],
-                    "status": g["status"],
-                    "priority": g["priority"],
-                    "summary": g.get("plan_summary", ""),
-                    "progress": progress,
-                    "subtasks": subtasks,
-                })
-            return {"goals": goals_data}
-        except Exception as exc:
-            return {"goals": [], "error": str(exc)}
-
-    # --- Long-Horizon Task Engine endpoints ---
-
-    @app.post("/api/tasks/long")
-    async def create_long_horizon_task(
-        req: LongHorizonCreateRequest,
-        _: None = Depends(require_auth),
-    ) -> Dict[str, Any]:
-        """Crea una tarea larga que corre en background en el LongHorizonEngine."""
-        core = get_core()
-        lh = getattr(core, "long_horizon", None)
-        if not lh:
-            raise HTTPException(status_code=503, detail="Long-horizon engine no disponible.")
-        try:
-            task = lh.create_task(
-                text=req.text,
-                priority=req.priority,
-                subtask_timeout=req.subtask_timeout,
-            )
-            return {"task": task.to_dict()}
-        except Exception as exc:
-            logger.exception("Error creando long-horizon task: %s", exc)
-            raise HTTPException(status_code=500, detail=str(exc))
-
-    @app.get("/api/tasks/long")
-    async def list_long_horizon_tasks(_: None = Depends(require_auth)) -> Dict[str, Any]:
-        """Lista todas las tareas largas registradas."""
-        core = get_core()
-        lh = getattr(core, "long_horizon", None)
-        if not lh:
+        if not core.task_store:
             return {"tasks": []}
-        return {"tasks": lh.list_tasks()}
+        try:
+            # Check worker status and cleanup memory
+            for tid, proc in list(_active_workers.items()):
+                if proc.poll() is not None:
+                    _active_workers.pop(tid, None)
+                    
+            tasks = core.task_store.get_all_tasks(limit=30)
+            return {"tasks": tasks}
+        except Exception as exc:
+            return {"tasks": [], "error": str(exc)}
 
-    @app.get("/api/tasks/long/{task_id}")
-    async def get_long_horizon_task(task_id: str, _: None = Depends(require_auth)) -> Dict[str, Any]:
+    @app.delete("/api/tasks/{task_id}")
+    async def delete_task(task_id: str, _: None = Depends(require_auth)) -> Dict[str, Any]:
+        """Mata el proceso worker si existe, y elimina la tarea de la base de datos."""
         core = get_core()
-        lh = getattr(core, "long_horizon", None)
-        if not lh:
-            raise HTTPException(status_code=503, detail="Long-horizon engine no disponible.")
-        task = lh.get_task(task_id)
-        if not task:
-            raise HTTPException(status_code=404, detail="Tarea no encontrada.")
-        return {"task": task.to_dict()}
+        if not core.task_store:
+            raise HTTPException(status_code=503, detail="TaskStore no disponible.")
+            
+        try:
+            if task_id in _active_workers:
+                proc = _active_workers[task_id]
+                if proc.poll() is None:
+                    proc.terminate()
+                _active_workers.pop(task_id, None)
+                
+            core.task_store.delete_task(task_id)
+            return {"success": True}
+        except Exception as exc:
+            logger.exception("Error borrando task %s: %s", task_id, exc)
+            raise HTTPException(status_code=500, detail=str(exc))
 
-    @app.post("/api/tasks/long/{task_id}/pause")
-    async def pause_long_horizon_task(task_id: str, _: None = Depends(require_auth)) -> Dict[str, bool]:
-        core = get_core()
-        lh = getattr(core, "long_horizon", None)
-        if not lh:
-            raise HTTPException(status_code=503, detail="Long-horizon engine no disponible.")
-        ok = lh.pause_task(task_id)
-        return {"success": ok}
-
-    @app.post("/api/tasks/long/{task_id}/resume")
-    async def resume_long_horizon_task(task_id: str, _: None = Depends(require_auth)) -> Dict[str, bool]:
-        core = get_core()
-        lh = getattr(core, "long_horizon", None)
-        if not lh:
-            raise HTTPException(status_code=503, detail="Long-horizon engine no disponible.")
-        ok = lh.resume_task(task_id)
-        return {"success": ok}
-
-    @app.post("/api/tasks/long/{task_id}/cancel")
-    async def cancel_long_horizon_task(task_id: str, _: None = Depends(require_auth)) -> Dict[str, bool]:
-        core = get_core()
-        lh = getattr(core, "long_horizon", None)
-        if not lh:
-            raise HTTPException(status_code=503, detail="Long-horizon engine no disponible.")
-        ok = lh.cancel_task(task_id)
-        return {"success": ok}
-
-    @app.get("/api/tasks/long/{task_id}/journal")
-    async def get_long_horizon_journal(
-        task_id: str,
-        limit: int = 50,
-        _: None = Depends(require_auth),
-    ) -> Dict[str, Any]:
-        core = get_core()
-        lh = getattr(core, "long_horizon", None)
-        if not lh:
-            return {"journal": []}
-        return {"journal": lh.get_journal(task_id, last_n=limit)}
+    @app.get("/api/tasks/{task_id}/logs")
+    async def get_task_logs(task_id: str, _: None = Depends(require_auth)) -> Dict[str, Any]:
+        """Devuelve las ultimas lineas de logs del worker asociado a esta tarea."""
+        import os
+        from pathlib import Path
+        log_file = Path(__file__).resolve().parent.parent / "logs" / f"worker_{task_id}.log"
+        if not log_file.exists():
+            return {"logs": "No hay logs disponibles o la tarea aun no ha escrito nada."}
+            
+        try:
+            # Leemos las ultimas ~200 lineas de forma basica
+            with open(log_file, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+                return {"logs": "".join(lines[-200:])}
+        except Exception as exc:
+            return {"logs": f"Error leyendo logs: {exc}"}
 
     # --- Render / Multi-window endpoints ---
     _rendered_views: Dict[str, str] = {}
 
     @app.post("/api/render")
     async def render_content(req: RenderRequest, _: None = Depends(require_auth)) -> Dict[str, Any]:
-        """Recibe HTML/SVG para renderizar en una ventana nativa o panel."""
+        """Recibe HTML/SVG para renderizar en una ventana nativa o panel.
+
+        Cada sesion puede abrir multiples ventanas. Si el cliente envia un
+        `render_id`, la vista es idempotente: el mismo identificador actualiza
+        esa ventana en lugar de crear otra. Si lo omite, se genera uno nuevo.
+        """
         import uuid
-        render_id = str(uuid.uuid4())[:8]
+        session_id = str(req.session_id or "default").strip() or "default"
+        render_id = (req.render_id or "").strip() or f"{session_id}-view-{uuid.uuid4().hex[:8]}"
         _rendered_views[render_id] = req.html
         event_bus.emit("console.render_requested", {
             "render_id": render_id,
+            "session_id": session_id,
             "title": req.title,
             "html": req.html,
             "width": req.width,
@@ -840,8 +973,28 @@ def create_app(
         return {
             "success": True,
             "render_id": render_id,
+            "session_id": session_id,
             "url": f"/api/render/{render_id}",
         }
+
+    @app.get("/api/render")
+    async def list_rendered_views(_: None = Depends(require_auth)) -> Dict[str, Any]:
+        """Lista las ventanas de render activas agrupadas por sesion."""
+        by_session: Dict[str, List[str]] = {}
+        for render_id in _rendered_views:
+            session_id = render_id.rsplit("-view-", 1)[0] if "-view-" in render_id else "default"
+            by_session.setdefault(session_id, []).append(render_id)
+        return {
+            "total": len(_rendered_views),
+            "sessions": by_session,
+        }
+
+    @app.delete("/api/render/{render_id}")
+    async def close_rendered_view(render_id: str, _: None = Depends(require_auth)) -> Dict[str, Any]:
+        """Descarta una vista de render concreta sin afectar a las demas."""
+        removed = _rendered_views.pop(render_id, None) is not None
+        event_bus.emit("console.render_closed", {"render_id": render_id})
+        return {"success": True, "closed": removed, "render_id": render_id}
 
     @app.get("/api/render/{render_id}")
     async def get_rendered_content(render_id: str) -> Any:
@@ -974,6 +1127,33 @@ def create_app(
 
 
     # ---------------------------------------------------------------------
+    # NAO Robot API
+    # ---------------------------------------------------------------------
+
+    @app.post("/api/nao/action")
+    async def nao_action_endpoint(req: Request, _: None = Depends(require_auth)) -> Any:
+        """Endpoint para controlar el robot NAO."""
+        body = await req.json()
+        action = body.get("action")
+        if not action:
+            raise HTTPException(status_code=400, detail="Falta el campo 'action'.")
+        params = body.get("params", {})
+
+        core = get_core()
+        nao_ability = None
+        if core and core.abilities and hasattr(core.abilities, "get"):
+            nao_ability = core.abilities.get("nao_robot")
+        if not nao_ability:
+            return {"success": False, "error": "Habilidad nao_robot no cargada en el servidor."}
+        
+        try:
+            res = await _maybe_await(nao_ability.execute(action, **params))
+            return res
+        except Exception as exc:
+            return {"success": False, "error": str(exc)}
+
+
+    # ---------------------------------------------------------------------
     # WebSocket: canal bidireccional en tiempo real.
     # ---------------------------------------------------------------------
 
@@ -986,12 +1166,19 @@ def create_app(
             return
         await ws.accept()
         _active_websockets.add(ws)
+        _websocket_sessions[ws] = set()
         core = get_core()
         try:
             while True:
                 payload = await ws.receive_json()
                 msg_type = payload.get("type", "message")
                 text = payload.get("text") or payload.get("message") or ""
+
+                if msg_type == "subscribe_session":
+                    session_id = str(payload.get("session_id") or "").strip()
+                    if session_id:
+                        _websocket_sessions[ws].add(session_id)
+                    continue
 
                 if msg_type == "rename_session":
                     old_id = payload.get("session_id")
@@ -1003,6 +1190,20 @@ def create_app(
                         sys_ability = core.abilities.get("system") if hasattr(core, "abilities") else None
                         if sys_ability and hasattr(sys_ability, "rename_session"):
                             sys_ability.rename_session(old_id, new_id)
+                        terminal_ability = core.abilities.get("persistent_terminal") if hasattr(core, "abilities") else None
+                        if terminal_ability and hasattr(terminal_ability, "rename_session"):
+                            terminal_ability.rename_session(old_id, new_id)
+                    continue
+
+                if msg_type == "cancel":
+                    session_id = str(payload.get("session_id") or "default")
+                    praxis = getattr(core, "praxis", None)
+                    if praxis is not None and hasattr(praxis, "cancel"):
+                        praxis.cancel(session_id)
+                        logger.info("WS: cancel solicitado para session=%s.", session_id)
+                    await ws.send_json({
+                        "type": "status", "state": "cancelled", "session_id": session_id
+                    })
                     continue
 
                 if msg_type != "message" or not text:
@@ -1015,16 +1216,20 @@ def create_app(
                     continue
 
                 # Notificar: pensando.
-                await ws.send_json({"type": "status", "state": "thinking"})
+                session_id = payload.get("session_id") or "default"
+                _websocket_sessions[ws].add(session_id)
+                await ws.send_json({
+                    "type": "status", "state": "thinking", "session_id": session_id
+                })
 
                 try:
                     stream_fn = getattr(core.praxis, "process_stream", None)
                     if stream_fn is not None:
                         full_parts: List[str] = []
-                        async for chunk in _maybe_await(stream_fn(text)):
+                        async for chunk in _maybe_await(stream_fn(text, session_id=session_id)):
                             full_parts.append(str(chunk))
                             await ws.send_json(
-                                {"type": "chunk", "text": str(chunk)}
+                                {"type": "chunk", "text": str(chunk), "session_id": session_id}
                             )
                         await ws.send_json(
                             {
@@ -1032,22 +1237,46 @@ def create_app(
                                 "response": "".join(full_parts),
                                 "calls": [],
                                 "path": None,
+                                "session_id": session_id,
                             }
                         )
                     else:
                         sensor_data = gather_system_context()
-                        raw = await _maybe_await(core.praxis.process(text, sensor_data=sensor_data))
+                        turn_task = asyncio.create_task(
+                            _maybe_await(core.praxis.process(
+                                text, sensor_data=sensor_data, session_id=session_id
+                            ))
+                        )
+                        try:
+                            raw = await asyncio.shield(turn_task)
+                        except asyncio.CancelledError:
+                            if turn_task.cancelled():
+                                await ws.send_json({
+                                    "type": "status", "state": "cancelled",
+                                    "session_id": session_id,
+                                })
+                                continue
+                            # Cliente desconectado: no dejar el turno huerfano.
+                            turn_task.cancel()
+                            raise
                         data = _normalize_response(raw)
-                        await ws.send_json({"type": "response", **data})
+                        await ws.send_json({
+                            "type": "response", "session_id": session_id, **data
+                        })
                 except Exception as exc:
                     logger.exception("Error en WS: %s", exc)
                     await ws.send_json(
-                        {"type": "status", "state": "error", "error": str(exc)}
+                        {
+                            "type": "status", "state": "error",
+                            "error": str(exc), "session_id": session_id,
+                        }
                     )
                     continue
 
                 # Notificar: terminado.
-                await ws.send_json({"type": "status", "state": "done"})
+                await ws.send_json({
+                    "type": "status", "state": "done", "session_id": session_id
+                })
 
         except WebSocketDisconnect:
             logger.info("Cliente WebSocket desconectado.")
@@ -1055,6 +1284,7 @@ def create_app(
             logger.exception("Error inesperado en WebSocket: %s", exc)
         finally:
             _active_websockets.discard(ws)
+            _websocket_sessions.pop(ws, None)
 
     @app.get("/api/logs")
     async def get_logs(lines: int = 100, _: None = Depends(require_auth)) -> JSONResponse:
@@ -1085,6 +1315,14 @@ def create_app(
             StaticFiles(directory=str(web_dir)),
             name="static-web",
         )
+        
+        projects_dir = Path("d:/WIS/Projects")
+        projects_dir.mkdir(parents=True, exist_ok=True)
+        app.mount(
+            "/projects",
+            StaticFiles(directory=str(projects_dir)),
+            name="projects-web",
+        )
 
         @app.get("/")
         async def _root() -> JSONResponse:
@@ -1101,16 +1339,23 @@ def create_app(
 # ---------------------------------------------------------------------------
 
 
-def _is_port_available(host: str, port: int) -> bool:
-    """Verifica si un puerto esta libre en el host indicado."""
+def _bind_server_socket(host: str, port: int):
+    """Reserva un puerto y devuelve el socket que Uvicorn debe usar."""
     import socket
 
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+    target_port = port
+    while True:
+        server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
-            s.bind((host, port))
-            return True
+            server_socket.bind((host, target_port))
+            server_socket.listen(socket.SOMAXCONN)
+            return server_socket, server_socket.getsockname()[1]
         except OSError:
-            return False
+            server_socket.close()
+            if port == 0:
+                raise
+            logger.warning(f"Port {target_port} is busy, checking port {target_port + 1}...")
+            target_port += 1
 
 
 def run_server(
@@ -1119,19 +1364,20 @@ def run_server(
     core: Optional[WISCoreContainer] = None,
     auth_token: Optional[str] = None,
     cors_origins: Optional[List[str]] = None,
+    on_port: Optional[Callable[[int], None]] = None,
 ) -> None:
     """Arranca uvicorn de forma bloqueante buscando un puerto libre."""
     import uvicorn
 
     app = create_app(core, auth_token=auth_token, cors_origins=cors_origins)
-    target_port = port
-    while not _is_port_available(host, target_port):
-        logger.warning(f"Port {target_port} is busy, checking port {target_port + 1}...")
-        target_port += 1
+    server_socket, target_port = _bind_server_socket(host, port)
 
     logger.info(f"WIS server active on http://{host}:{target_port}/console/")
     print(f"\n  WIS Server active at: http://{host}:{target_port}/console/\n")
-    uvicorn.run(app, host=host, port=target_port, log_level="warning")
+    if on_port:
+        on_port(target_port)
+    server = uvicorn.Server(uvicorn.Config(app, host=host, port=target_port, log_level="warning"))
+    server.run(sockets=[server_socket])
 
 
 def start_server_thread(
@@ -1146,19 +1392,17 @@ def start_server_thread(
     import uvicorn
 
     app = create_app(core, auth_token=auth_token, cors_origins=cors_origins)
-    target_port = port
-    while not _is_port_available(host, target_port):
-        logger.warning(f"Port {target_port} is busy, auto-allocating port {target_port + 1}...")
-        target_port += 1
+    server_socket, target_port = _bind_server_socket(host, port)
 
     logger.info(f"WIS server active on http://{host}:{target_port}/console/")
     config = uvicorn.Config(app, host=host, port=target_port, log_level="warning")
     server = uvicorn.Server(config)
 
-    thread = threading.Thread(target=server.run, daemon=True)
+    thread = threading.Thread(target=server.run, kwargs={"sockets": [server_socket]}, daemon=True)
     thread.start()
 
     def _stop() -> None:
         server.should_exit = True
 
+    _stop.port = target_port
     return _stop

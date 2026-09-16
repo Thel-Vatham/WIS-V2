@@ -48,7 +48,7 @@ class ReasoningEngine:
         tools: Optional[List[Dict[str, Any]]] = None,
         session_id: str = "default",
     ) -> Dict[str, Any]:
-        context: str = self._compile_context(user_input)
+        context: str = self._compile_context(user_input, session_id=session_id)
         system_prompt: str = self._build_system_prompt(context, tools=tools, session_id=session_id)
 
         messages: List[Dict[str, Any]] = [{"role": "system", "content": system_prompt}]
@@ -271,10 +271,12 @@ class ReasoningEngine:
             "additionalProperties": True,
         }
 
-    def _compile_context(self, user_input: str) -> str:
+    def _compile_context(self, user_input: str, session_id: str = "default") -> str:
         sections: List[str] = []
 
-        memories = self.memory.recall(user_input, top_k=TOP_MEMORIES_K * 2)
+        memories = self.memory.recall(
+            user_input, top_k=TOP_MEMORIES_K * 2, session_id=session_id
+        )
         if memories:
             ranked = self._rank_memories(memories, user_input, top_k=TOP_MEMORIES_K)
             if ranked:
@@ -411,9 +413,14 @@ class ReasoningEngine:
                 tools_section.append(f"Description: {desc}")
                 tools_section.append("Actions:")
                 for act in actions:
-                    act_name = act.get("action", "")
-                    act_desc = act.get("description", "")
-                    params = act.get("params", {})
+                    if isinstance(act, dict):
+                        act_name = act.get("action", "")
+                        act_desc = act.get("description", "")
+                        params = act.get("params", {})
+                    else:
+                        act_name = str(act)
+                        act_desc = ""
+                        params = {}
                     tools_section.append(f"- **`{act_name}`**: {act_desc}")
                     if params:
                         params_json = json.dumps(params, indent=2, ensure_ascii=False)
@@ -450,7 +457,7 @@ class ReasoningEngine:
             "RULES:\n"
             "1. ONLY report outcomes that are CONFIRMED by actual tool results returned to you in the execution trace.\n"
             "2. If a tool returned success=True → report success for THAT specific action only — do NOT extrapolate.\n"
-            "3. If a tool returned success=False, error, or no result → report the failure HONESTLY. Never hide errors.\n"
+            "3. PROACTIVE PROBLEM SOLVING: If a tool returned success=False, error, or no result → DO NOT just give up and report the failure. You MUST analyze the error, think of an alternative approach, and attempt to self-correct using other tools. Only report a definitive failure if all alternative approaches have been exhausted. When you do report it, report it HONESTLY.\n"
             "4. NEVER claim a file exists unless a tool confirmed its path. NEVER claim a process is running unless a tool returned a PID or confirmation.\n"
             "5. NEVER invent file paths, PIDs, screenshots, waveforms, or results not explicitly present in the tool output.\n"
             "6. If you did NOT use a tool to do something, do NOT claim you did it.\n"

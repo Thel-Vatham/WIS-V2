@@ -5,6 +5,7 @@ class TerminalInstance {
         this.manager = manager;
         this.sessionId = sessionId;
         this.isThinking = false;
+        this.cancelled = false;
         this.currentAudio = null;
         this.ttsInterrupted = false;
 
@@ -32,7 +33,117 @@ class TerminalInstance {
         this.setupEvents();
     }
 
+    setupAutocomplete() {
+        const COMMANDS = [
+            { cmd: "/cd",            args: "<ruta>",           desc: "Cambia el directorio local de la consola" },
+            { cmd: "/new",           args: "<nombre>",         desc: "Crea el proyecto en d:\\WIS\\Projects y hace cd" },
+            { cmd: "/projects",      args: "",                  desc: "Lista las carpetas dentro de d:\\WIS\\Projects" },
+            { cmd: "/stop",          args: "",                  desc: "Detiene los procesos de fondo vinculados a esta sesion" },
+            { cmd: "/delete",        args: "<nombre>",         desc: "Borra el proyecto y detiene sus procesos" },
+            { cmd: "/clear",         args: "",                  desc: "Limpia la pantalla visual localmente" },
+            { cmd: "/help",          args: "",                  desc: "Lista todos los comandos disponibles" },
+            { cmd: "/swarm",         args: "",                  desc: "Interroga el estado del enjambre de terminales" },
+            { cmd: "/hw-scan",       args: "",                  desc: "Escanea puertos COM (serial) e IPs en red local" },
+            { cmd: "/port",          args: "<num>",             desc: "Levanta un micro-servidor HTTP estatico en la carpeta" },
+            { cmd: "/git",           args: "<mensaje>",        desc: "Hace add, commit y push del codigo automaticamente" },
+            { cmd: "/build",         args: "",                  desc: "Detecta e invoca el comando de build o install del proyecto" },
+            { cmd: "/reboot",        args: "",                  desc: "Limpia la memoria a corto plazo del LLM en esta sesion" },
+            { cmd: "/goal",          args: "<desc>",            desc: "Lanza un worker en background para un objetivo largo" },
+            { cmd: "/proactividad",  args: "<on|off>",          desc: "Enciende o apaga el motor proactivo" },
+            { cmd: "/ping",          args: "<ip>",              desc: "Verifica latencia contra una IP local o remota" },
+            { cmd: "/list",          args: "",                  desc: "Lista los archivos del proyecto actual" },
+            { cmd: "/run",           args: "<comando>",         desc: "Ejecuta y muestra el output en ventana modal" },
+            { cmd: "/open",          args: "<archivo>",         desc: "Abre el archivo en una nueva pestana del navegador" },
+            { cmd: "/sys",           args: "",                  desc: "Muestra la telemetria del SO Host (CPU, RAM, Discos)" },
+            { cmd: "/focus",         args: "<archivo>",         desc: "Inyecta un archivo en la memoria transitoria" },
+            { cmd: "/unfocus",       args: "<archivo>",         desc: "Quita un archivo de la memoria transitoria" },
+            { cmd: "/context",       args: "",                  desc: "Muestra los archivos actualmente en memoria transitoria" },
+            { cmd: "/clear-context", args: "",                  desc: "Limpia todos los archivos de la memoria transitoria" },
+            { cmd: "/search",        args: "<texto>",           desc: "Buscador global en el proyecto actual" },
+            { cmd: "/logs",          args: "",                  desc: "Abre el log maestro de WIS" },
+            { cmd: "/ps",            args: "",                  desc: "Muestra tareas y agentes activos en Host" },
+            { cmd: "/kill",          args: "<pid>",             desc: "Mata un proceso forzosamente" },
+            { cmd: "/memory-map",    args: "",                  desc: "Dibuja el mapa de memoria actual del agente" },
+            { cmd: "/why",           args: "",                  desc: "Muestra justificacion operacional del ultimo comando" },
+            { cmd: "/trace",         args: "",                  desc: "Debugger agentivo del ciclo ReAct" },
+            { cmd: "/undo",          args: "",                  desc: "Revierte la ultima operacion en el FS" },
+            { cmd: "/speak",         args: "<texto>",           desc: "Sintetiza voz forzada omitiendo la red neuronal" }
+        ];
+        
+        // Expose for /help command
+        this._commands = COMMANDS;
+
+        let selectedIndex = 0;
+        const autocompletePopup = this.element.querySelector(".command-autocomplete");
+
+        const updatePopup = () => {
+            const val = this.input.value;
+            if (!val.startsWith("/") || val.includes(" ")) {
+                autocompletePopup.classList.add("hidden");
+                return;
+            }
+            const query = val.toLowerCase();
+            const matches = COMMANDS.filter(c => c.cmd.startsWith(query));
+            
+            if (matches.length === 0 || (matches.length === 1 && matches[0].cmd === val)) {
+                autocompletePopup.classList.add("hidden");
+                return;
+            }
+
+            autocompletePopup.innerHTML = "";
+            matches.forEach((m, idx) => {
+                const div = document.createElement("div");
+                div.className = "ac-item" + (idx === selectedIndex ? " selected" : "");
+                div.innerHTML = `<span class="ac-cmd">${m.cmd}</span><span class="ac-args">${m.args}</span><span class="ac-desc">${m.desc}</span>`;
+                div.addEventListener("mousedown", (e) => {
+                    e.preventDefault();
+                    this.input.value = m.cmd + (m.args ? " " : "");
+                    autocompletePopup.classList.add("hidden");
+                    this.input.focus();
+                });
+                autocompletePopup.appendChild(div);
+            });
+            
+            // Position popup above the input
+            const rect = this.input.getBoundingClientRect();
+            autocompletePopup.style.bottom = (window.innerHeight - rect.top + 6) + "px";
+            autocompletePopup.style.left = rect.left + "px";
+            autocompletePopup.classList.remove("hidden");
+        };
+
+        this.input.addEventListener("input", () => {
+            selectedIndex = 0;
+            updatePopup();
+        });
+
+        this.input.addEventListener("blur", () => {
+            setTimeout(() => autocompletePopup.classList.add("hidden"), 150);
+        });
+
+        this.input.addEventListener("keydown", (e) => {
+            if (autocompletePopup.classList.contains("hidden")) return;
+            
+            const items = autocompletePopup.querySelectorAll(".ac-item");
+            if (e.key === "ArrowDown") {
+                e.preventDefault();
+                selectedIndex = (selectedIndex + 1) % items.length;
+                updatePopup();
+            } else if (e.key === "ArrowUp") {
+                e.preventDefault();
+                selectedIndex = (selectedIndex - 1 + items.length) % items.length;
+                updatePopup();
+            } else if (e.key === "Tab") {
+                e.preventDefault();
+                if (items[selectedIndex]) items[selectedIndex].dispatchEvent(new MouseEvent("mousedown"));
+            } else if (e.key === "Escape") {
+                autocompletePopup.classList.add("hidden");
+            }
+        });
+    }
+
     setupEvents() {
+        this.setupAutocomplete();
+
         this.title.addEventListener("dblclick", () => {
             const newName = prompt("Nuevo nombre para esta terminal:", this.sessionId);
             if (newName && newName.trim() && newName.trim() !== this.sessionId) {
@@ -41,8 +152,47 @@ class TerminalInstance {
         });
 
         this.input.addEventListener("keydown", (e) => {
+            const autocompletePopup = this.element.querySelector(".command-autocomplete");
+            if (!autocompletePopup.classList.contains("hidden") && 
+                (e.key === "ArrowDown" || e.key === "ArrowUp" || e.key === "Tab" || e.key === "Escape")) {
+                return; // Handled by autocomplete
+            }
             if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
+                autocompletePopup.classList.add("hidden");
+                
+                // Client-side /clear
+                if (this.input.value.trim() === "/clear") {
+                    this.output.innerHTML = "";
+                    this.input.value = "";
+                    fetch("/api/sessions/" + encodeURIComponent(this.sessionId) + "/history", {
+                        method: "DELETE",
+                        headers: getAuthHeaders(),
+                    });
+                    return;
+                }
+
+                // Client-side /help
+                if (this.input.value.trim() === "/help") {
+                    this.input.value = "";
+                    const lines = this._commands.map(c => 
+                        `  ${c.cmd.padEnd(18)} ${c.args.padEnd(16)} ${c.desc}`
+                    );
+                    const helpText = "Comandos disponibles:\n\n" + lines.join("\n");
+                    this.appendAssistantMessage("```\n" + helpText + "\n```");
+                    return;
+                }
+
+                const deleteMatch = this.input.value.trim().match(/^\/delete(?:\s+(.+))?$/i);
+                if (deleteMatch) {
+                    const projectName = (deleteMatch[1] || this.sessionId).replace(/\s+--confirmed$/i, "").trim();
+                    if (!projectName || !confirm(`Delete project '${projectName}' and all its history and context?`)) {
+                        this.input.value = "";
+                        return;
+                    }
+                    this.input.value = `/delete ${projectName} --confirmed`;
+                }
+                
                 this.sendMessage();
             }
         });
@@ -67,10 +217,15 @@ class TerminalInstance {
         
         if (this.btnCancel) {
             this.btnCancel.addEventListener("click", () => {
+                this.cancelled = true;
                 if (this.abortController) {
                     this.abortController.abort();
                     this.abortController = null;
                 }
+                // El abort del fetch solo corta la conexion HTTP. Hay que
+                // avisar al servidor para que detenga el turno cognitivo real;
+                // si no, la sesion queda bloqueada hasta que termine solo.
+                if (window.cancelServerTurn) window.cancelServerTurn(this.sessionId);
                 this.setThinking(false);
                 this.appendSystemMessage("Request cancelled by operator.");
             });
@@ -92,6 +247,7 @@ class TerminalInstance {
     }
 
     setThinking(active, label = "WIS is reasoning...") {
+        if (active && this.cancelled) return;
         this.isThinking = active;
         this.thinkingLabel.textContent = label;
         if (active) {
@@ -147,12 +303,30 @@ class TerminalInstance {
             window.sendChatRequest(val, this);
         }
     }
+
+    async restoreHistory() {
+        if (this.output.childElementCount > 0) return;
+        try {
+            const res = await fetch(
+                "/api/sessions/" + encodeURIComponent(this.sessionId) + "/history",
+                { headers: getAuthHeaders() },
+            );
+            if (!res.ok) return;
+            const data = await res.json();
+            for (const message of data.history || []) {
+                if (message.role === "user") this.appendUserMessage(message.content || "");
+                if (message.role === "assistant") this.appendAssistantMessage(message.content || "");
+            }
+        } catch (e) {
+            console.warn("Could not restore terminal history:", e);
+        }
+    }
 }
 
 class TerminalManager {
     constructor() {
         this.instances = new Map();
-        this.activeSessionId = "default";
+        this.activeSessionId = "main";
         this.grid = document.getElementById("terminal-grid");
         this.dock = document.getElementById("terminal-dock");
         this.template = document.getElementById("terminal-template");
@@ -198,7 +372,7 @@ class TerminalManager {
             const saved = JSON.parse(localStorage.getItem("wis-terminals"));
             if (Array.isArray(saved) && saved.length > 0) {
                 for (const sid of saved) {
-                    this.createTerminal(sid);
+                        this.createTerminal(sid === "default" ? "main" : sid);
                 }
                 return true; // Successfully restored
             }
@@ -206,12 +380,25 @@ class TerminalManager {
         return false;
     }
 
+    async restorePersistentState() {
+        try {
+            const res = await fetch("/api/sessions", { headers: getAuthHeaders() });
+            if (!res.ok) return [];
+            // Project sessions stay in the tree and are opened on demand.
+            // Startup must contain only the transient main console.
+            return (await res.json()).sessions || [];
+        } catch (e) {
+            console.warn("Could not restore persistent terminal sessions:", e);
+            return [];
+        }
+    }
+
     generateId() {
         return "term-" + Math.random().toString(36).substring(2, 6);
     }
 
     createTerminal(customId = null) {
-        const sid = customId || (this.instances.size === 0 ? "default" : this.generateId());
+        const sid = customId || (this.instances.size === 0 ? "main" : this.generateId());
         if (this.instances.has(sid)) return this.instances.get(sid);
         
         const inst = new TerminalInstance(this, sid, this.template);
@@ -219,6 +406,7 @@ class TerminalManager {
         this.grid.appendChild(inst.element);
         this.updateGridSplit();
         this.saveState();
+        if (window.subscribeWebSocketSession) window.subscribeWebSocketSession(sid);
         return inst;
     }
 
@@ -239,6 +427,15 @@ class TerminalManager {
             }
         }
         return this.instances.get("default");
+    }
+
+    async openSession(sessionId) {
+        const terminal = this.createTerminal(sessionId);
+        this.setActive(sessionId);
+        this.restoreToGrid(sessionId);
+        await terminal.restoreHistory();
+        terminal.input.focus();
+        return terminal;
     }
 
     closeTerminal(sid) {

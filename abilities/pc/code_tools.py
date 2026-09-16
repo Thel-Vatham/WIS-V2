@@ -38,7 +38,7 @@ def code_view_file(
     path: str | Path,
     start_line: int = 1,
     end_line: int | None = None,
-    max_lines: int = 800,
+    max_lines: int = 3000,
     root: Path | None = None,
 ) -> str:
     """View file contents with line numbers and bounds slicing.

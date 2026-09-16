@@ -20,7 +20,7 @@
         "mode": "privileged"
     },
     "agentic": {
-        "max_steps": 10,
+        "max_steps": 50,
         "step_timeout_s": 60
     },
     "proactivity": {

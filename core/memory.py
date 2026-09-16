@@ -19,8 +19,43 @@ from typing import Any, Deque, Dict, List, Optional, Tuple, Union
 
 logger = logging.getLogger("wis.core.memory")
 
-SHORT_TERM_LIMIT = 20
+SHORT_TERM_LIMIT = 60  # Elevated: retain 60 turns for long dev sessions
 EMBEDDING_DIM = 384
+
+
+_EMOJI_RE = re.compile(r"[\U0001F000-\U0001FAFF\u2600-\u27BF]")
+
+# Un turno solo se considera "contaminante" si esta DOMINADO por emojis. Antes
+# bastaba UN emoji para descartar el turno entero, y el rango \u2600-\u27BF
+# incluye simbolos tecnicos legitimos como ✅ (U+2705) y ⚠ (U+26A0), por lo que
+# conversaciones reales de ingenieria desaparecian del contexto.
+_EMOJI_DENSITY_THRESHOLD = 0.20
+
+
+def _emoji_density(text: str) -> float:
+    """Proporcion de emojis sobre el total de caracteres no blancos."""
+    stripped = re.sub(r"\s+", "", text or "")
+    if not stripped:
+        return 0.0
+    return len(_EMOJI_RE.findall(stripped)) / len(stripped)
+
+
+def _is_contaminating_turn(user_input: str, response: str) -> bool:
+    """Excluye respuestas meta o visuales que no pertenecen al contexto operativo."""
+    text = f"{user_input}\n{response}"
+    if _emoji_density(text) >= _EMOJI_DENSITY_THRESHOLD:
+        return True
+    markers = (
+        "what are you up to",
+        "implementation plan",
+        "dashboard control",
+        "no active windows",
+        "looks like you're",
+        "here's where things genuinely stand",
+        "just keeping us honest",
+    )
+    lowered = text.lower()
+    return any(marker in lowered for marker in markers)
 
 try:
     import numpy as np
@@ -165,8 +200,7 @@ class Memory:
         with self._lock:
             if session_id not in self._short_term:
                 self._short_term[session_id] = deque(maxlen=SHORT_TERM_LIMIT)
-                if session_id == "default":
-                    self._load_recent_history(session_id)
+                self._load_recent_history(session_id)
             return self._short_term[session_id]
 
     def _load_recent_history(self, session_id: str) -> None:
@@ -175,12 +209,15 @@ class Memory:
         try:
             with self._lock:
                 cur = self._conn.execute(
-                    "SELECT user_input, response, created_at FROM episodic ORDER BY id DESC LIMIT ?",
-                    (SHORT_TERM_LIMIT,)
+                    "SELECT user_input, response, created_at FROM episodic "
+                    "WHERE session_id=? ORDER BY id DESC LIMIT ?",
+                    (session_id, SHORT_TERM_LIMIT)
                 )
                 rows = cur.fetchall()
                 q = self._short_term[session_id]
                 for user_input, response, created_at in reversed(rows):
+                    if _is_contaminating_turn(user_input, response):
+                        continue
                     q.append({
                         "user": user_input,
                         "response": response,
@@ -211,6 +248,7 @@ class Memory:
                     user_input TEXT NOT NULL,
                     response TEXT NOT NULL,
                     embedding BLOB NOT NULL,
+                    session_id TEXT NOT NULL DEFAULT 'default',
                     created_at TEXT DEFAULT CURRENT_TIMESTAMP
                 );
 
@@ -224,21 +262,47 @@ class Memory:
                 );
                 """
             )
+            columns = {row[1] for row in self._conn.execute("PRAGMA table_info(episodic)").fetchall()}
+            if "session_id" not in columns:
+                self._conn.execute("ALTER TABLE episodic ADD COLUMN session_id TEXT NOT NULL DEFAULT 'default'")
             self._conn.commit()
 
     # --- Short-term ---
     def get_history(self, session_id: str = "default") -> List[Dict[str, Any]]:
         messages: List[Dict[str, Any]] = []
         for turn in list(self._get_session_deque(session_id)):
+            if _is_contaminating_turn(turn.get("user", ""), turn.get("response", "")):
+                continue
             messages.append({"role": "user", "content": turn.get("user", "")})
             messages.append({"role": "assistant", "content": turn.get("response", "")})
         return messages
 
+    def clear_session(self, session_id: str = "default") -> None:
+        """Elimina el historial persistido y en memoria de una sesión."""
+        with self._lock:
+            self._short_term.pop(session_id, None)
+            self._conn.execute("DELETE FROM episodic WHERE session_id=?", (session_id,))
+            self._conn.commit()
+
     def rename_session(self, old_id: str, new_id: str) -> None:
         """Migra la memoria de la sesión antigua a la nueva."""
+        old_id = str(old_id or "").strip()
+        new_id = str(new_id or "").strip()
+        if not old_id or not new_id or old_id == new_id:
+            return
         with self._lock:
             if old_id in self._short_term and old_id != new_id:
-                self._short_term[new_id] = self._short_term.pop(old_id)
+                existing = self._short_term.get(new_id)
+                if existing:
+                    existing.extend(self._short_term[old_id])
+                else:
+                    self._short_term[new_id] = self._short_term[old_id]
+                self._short_term.pop(old_id, None)
+            self._conn.execute(
+                "UPDATE episodic SET session_id=? WHERE session_id=?",
+                (new_id, old_id),
+            )
+            self._conn.commit()
 
     async def compress_history(self, local_client: Any, session_id: str = "default") -> None:
         """Comprime el historial corto usando el LLM local para ahorrar contexto."""
@@ -347,12 +411,17 @@ class Memory:
         blob = self._serialize_embedding(vec)
         with self._lock:
             self._conn.execute(
-                "INSERT INTO episodic (user_input, response, embedding, created_at) VALUES (?, ?, ?, ?)",
-                (user_input, response, blob, now_str),
+                "INSERT INTO episodic (user_input, response, embedding, session_id, created_at) VALUES (?, ?, ?, ?, ?)",
+                (user_input, response, blob, session_id, now_str),
             )
             self._conn.commit()
 
-    def recall(self, query: str, top_k: int = 3) -> List[Dict[str, Any]]:
+    def recall(
+        self,
+        query: str,
+        top_k: int = 3,
+        session_id: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
         query = (query or "").strip()
         if not query:
             return []
@@ -361,14 +430,28 @@ class Memory:
         q_words = set(re.findall(r"\w+", query.lower()))
 
         query_vec = self._embedder.embed(query)
+        # El OFFSET salta los turnos recientes porque ya viajan en el historial
+        # de contexto corto; sin el filtro de sesion, recall() devolvia memoria
+        # de OTROS proyectos, filtrando informacion entre sesiones aisladas.
+        columns = "id, user_input, response, embedding, created_at"
         with self._lock:
-            rows = self._conn.execute(
-                f"SELECT id, user_input, response, embedding, created_at FROM episodic ORDER BY id DESC LIMIT 100 OFFSET {SHORT_TERM_LIMIT}"
-            ).fetchall()
+            if session_id:
+                rows = self._conn.execute(
+                    f"SELECT {columns} FROM episodic WHERE session_id=? "
+                    f"ORDER BY id DESC LIMIT 100 OFFSET {SHORT_TERM_LIMIT}",
+                    (str(session_id),),
+                ).fetchall()
+            else:
+                rows = self._conn.execute(
+                    f"SELECT {columns} FROM episodic "
+                    f"ORDER BY id DESC LIMIT 100 OFFSET {SHORT_TERM_LIMIT}"
+                ).fetchall()
 
         total_rows = len(rows)
         candidates: List[Tuple[float, Dict[str, Any]]] = []
         for idx, (row_id, ui, resp, blob, created_at) in enumerate(rows):
+            if _is_contaminating_turn(ui, resp):
+                continue
             vec = self._deserialize_embedding(blob)
             cosine_sim = _cosine_similarity(query_vec, vec)
             

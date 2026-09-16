@@ -344,7 +344,10 @@ class SwarmExecutor:
         else:
             workers = max(1, min(len(tasks), self.max_workers, telemetry.get("recommended_concurrency", 4)))
 
-        with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="avrora-swarm") as pool:
+        from concurrent.futures import ProcessPoolExecutor, as_completed
+
+        # Usamos ProcessPoolExecutor para paralelismo real multi-nucleo y evitar choques de consola por hilos
+        with ProcessPoolExecutor(max_workers=workers) as pool:
             futures = [pool.submit(_run_single, i, t) for i, t in enumerate(tasks)]
             for fut in as_completed(futures, timeout=timeout):
                 try:

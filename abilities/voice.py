@@ -93,17 +93,25 @@ class VoiceAbility(Ability):
 
             headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
 
-            if not model_path.exists():
+            if not model_path.exists() or model_path.stat().st_size < 1000000:
                 logger.info("Downloading Kokoro-82M ONNX model to Data/kokoro...")
                 req = urllib.request.Request("https://huggingface.co/thewh1teagle/Kokoro/resolve/main/kokoro-v0_19.onnx", headers=headers)
-                with urllib.request.urlopen(req) as resp, open(model_path, "wb") as f:
-                    f.write(resp.read())
+                with urllib.request.urlopen(req) as resp:
+                    with tempfile.NamedTemporaryFile(delete=False) as tmp:
+                        tmp.write(resp.read())
+                        tmp_name = tmp.name
+                import shutil
+                shutil.move(tmp_name, model_path)
 
-            if not voices_path.exists():
+            if not voices_path.exists() or voices_path.stat().st_size < 1000:
                 logger.info("Downloading Kokoro voices.bin to Data/kokoro...")
                 req = urllib.request.Request("https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin", headers=headers)
-                with urllib.request.urlopen(req) as resp, open(voices_path, "wb") as f:
-                    f.write(resp.read())
+                with urllib.request.urlopen(req) as resp:
+                    with tempfile.NamedTemporaryFile(delete=False) as tmp:
+                        tmp.write(resp.read())
+                        tmp_name = tmp.name
+                import shutil
+                shutil.move(tmp_name, voices_path)
 
             self._kokoro_engine = Kokoro(str(model_path), str(voices_path))
             logger.info("Kokoro-82M ONNX Engine initialized successfully with voice 'af_sky'.")

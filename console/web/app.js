@@ -17,6 +17,10 @@ const State = {
     // Terminal
     isThinking: false,
     currentStreamMsg: null,
+    currentStreamMessages: new Map(),
+    // Render windows per session: sessionId -> Map(renderId -> window|url)
+    renderWindows: new Map(),
+    renderCounters: new Map(),
     ttsEnabled: localStorage.getItem("wis-tts") === "true",
     securityMode: "privileged",
 
@@ -49,12 +53,8 @@ function cacheDom() {
     Dom.wisOrb = document.getElementById("wis-orb");
     Dom.tbStatus = document.getElementById("tb-status");
     Dom.pillMode = document.getElementById("pill-mode");
-    Dom.pillPath = document.getElementById("pill-path");
-    Dom.pillWs = document.getElementById("pill-ws");
 
     Dom.btnToggleRight = document.getElementById("btn-toggle-right");
-    Dom.btnToggleBoth = document.getElementById("btn-toggle-both");
-    Dom.btnSecurity = document.getElementById("btn-security");
     Dom.btnTts = document.getElementById("btn-tts");
     Dom.btnNewWindow = document.getElementById("btn-new-window");
     Dom.btnMinimize = document.getElementById("btn-minimize");
@@ -68,14 +68,14 @@ function cacheDom() {
     // Initialize Terminal Manager
     window.parseMarkdown = formatMarkdown;
     window.terminalManager = new TerminalManager();
-    if (!window.terminalManager.restoreState()) {
-        window.terminalManager.createTerminal(); // Initial terminal if none saved
-    }
     
     // Fallback file input if needed globally
     Dom.fileInput = document.getElementById("global-file-input");
 
     Dom.goalList = document.getElementById("goal-list");
+    Dom.projectTree = document.getElementById("project-tree");
+    Dom.btnRefreshProjects = document.getElementById("btn-refresh-projects");
+    if (Dom.btnRefreshProjects) Dom.btnRefreshProjects.addEventListener("click", loadProjects);
     Dom.btnAddGoal = document.getElementById("btn-add-goal");
     Dom.lhTaskList = document.getElementById("lh-task-list");
     Dom.btnAddLhTask = document.getElementById("btn-add-lh-task");
@@ -459,13 +459,24 @@ function initWindowResize() {
 // ═══════════════════════════════════════════════════════════════════
 
 function initCollapsiblePanels() {
-    document.querySelectorAll(".panel[data-collapsible]").forEach(panel => {
+    let saved = {};
+    try { saved = JSON.parse(localStorage.getItem("wis-panel-state") || "{}"); } catch (_) { }
+    document.querySelectorAll(".panel[data-collapsible]").forEach((panel, index) => {
+        const key = panel.classList.contains("project-panel") ? "projects" : `panel-${index}`;
+        if (saved[key]) panel.classList.add("collapsed");
         const header = panel.querySelector(".panel-hd");
         if (!header) return;
         header.querySelectorAll("button, input").forEach(el => {
             el.addEventListener("click", (e) => e.stopPropagation());
         });
-        header.addEventListener("click", () => panel.classList.toggle("collapsed"));
+        header.addEventListener("click", () => {
+            panel.classList.toggle("collapsed");
+            try {
+                const state = JSON.parse(localStorage.getItem("wis-panel-state") || "{}");
+                state[key] = panel.classList.contains("collapsed");
+                localStorage.setItem("wis-panel-state", JSON.stringify(state));
+            } catch (_) { }
+        });
     });
 }
 
@@ -514,12 +525,16 @@ function initWebSocket() {
     State.ws.onopen = () => {
         State.wsConnected = true;
         State.reconnectDelay = 1000;
-        if (Dom.pillWs) {
-            Dom.pillWs.textContent = "● WS";
-            Dom.pillWs.className = "hud-pill green";
-        }
         if (Dom.wisOrb) Dom.wisOrb.className = "wis-orb";
-        if (Dom.tbStatus) Dom.tbStatus.textContent = "SYSTEM ONLINE";
+        if (Dom.tbStatus) {
+            Dom.tbStatus.textContent = "SYSTEM ONLINE";
+            Dom.tbStatus.className = "tb-center online";
+        }
+        if (window.terminalManager) {
+            for (const sessionId of window.terminalManager.instances.keys()) {
+                subscribeWebSocketSession(sessionId);
+            }
+        }
         refreshPanels();
     };
 
@@ -543,12 +558,11 @@ function initWebSocket() {
 
 function onWsDisconnect() {
     State.wsConnected = false;
-    if (Dom.pillWs) {
-        Dom.pillWs.textContent = "○ WS";
-        Dom.pillWs.className = "hud-pill dim";
-    }
     if (Dom.wisOrb) Dom.wisOrb.className = "wis-orb offline";
-    if (Dom.tbStatus) Dom.tbStatus.textContent = "OFFLINE / RECONNECTING";
+    if (Dom.tbStatus) {
+        Dom.tbStatus.textContent = "OFFLINE / RECONNECTING";
+        Dom.tbStatus.className = "tb-center offline";
+    }
 
     clearTimeout(State.reconnectTimer);
     State.reconnectTimer = setTimeout(() => {
@@ -568,17 +582,23 @@ function handleWsMessage(data) {
         } else if (data.state === "done") {
             setThinking(false, "", data.session_id);
             State.currentStreamMsg = null;
+            State.currentStreamMessages.delete(data.session_id || window.terminalManager.activeSessionId);
         } else if (data.state === "error") {
             setThinking(false, "", data.session_id);
             appendSystemMessage("Error: " + (data.error || "Unknown"), data.session_id);
+        } else if (data.state === "cancelled") {
+            setThinking(false, "", data.session_id);
+            State.currentStreamMsg = null;
+            State.currentStreamMessages.delete(data.session_id || window.terminalManager.activeSessionId);
         }
     } else if (data.type === "chunk") {
         setThinking(false, "", data.session_id);
-        appendStreamChunk(data.text || "");
+        appendStreamChunk(data.text || "", data.session_id);
     } else if (data.type === "response") {
         setThinking(false, "", data.session_id);
         // renderFullResponse(data);
         State.currentStreamMsg = null;
+        State.currentStreamMessages.delete(data.session_id || window.terminalManager.activeSessionId);
     } else if (data.type === "event_bus") {
         handleBusEvent(data.event, data.data || {});
     }
@@ -593,15 +613,29 @@ function handleBusEvent(event, payload) {
         term.appendSystemMessage("--- New Goal Spawned ---");
         return;
     }
+    
+    if (event === "ui.show_log") {
+        const modal = document.getElementById("log-modal");
+        const pre = document.getElementById("log-output");
+        pre.textContent = payload.content || "Empty log.";
+        modal.classList.remove("hidden");
+        return;
+    }
+    
+    if (event === "ui.open_file") {
+        const path = payload.path;
+        if (path) {
+            window.open("/projects/" + path, "_blank");
+        }
+        return;
+    }
 
     // Try to route to specific terminal if session_id is provided, otherwise fallback to active
     let targetTerm = null;
     if (payload.session_id) {
         targetTerm = window.terminalManager.getTerminal(payload.session_id);
     }
-    if (!targetTerm) {
-        targetTerm = window.terminalManager.getActiveTerminal();
-    }
+    const sessionEvent = Boolean(payload.session_id);
 
     if (event === "reasoning.token_chunk") {
         // Stream chunk rendering is currently not implemented for multi-terminal via WS, 
@@ -611,9 +645,9 @@ function handleBusEvent(event, payload) {
         // Do not appendUserMessage here because sendChatRequest already does it instantly.
         // This avoids duplication and blocking issues if WS is delayed.
     } else if (event === "pipeline.call_start") {
-        if (targetTerm) targetTerm.setThinking(true, "Executing: " + (payload.action || payload.skill) + "...");
+        if (sessionEvent && targetTerm) targetTerm.setThinking(true, "Executing: " + (payload.action || payload.skill) + "...");
     } else if (event === "pipeline.loop_step") {
-        if (targetTerm) targetTerm.setThinking(true, "Thinking (Step " + payload.step + ")...");
+        if (sessionEvent && targetTerm) targetTerm.setThinking(true, "Thinking (Step " + payload.step + ")...");
     } else if (event === "ptt.started") {
         stopTtsAudio();
         if (targetTerm) targetTerm.setThinking(true, "Listening (PTT active)...");
@@ -632,14 +666,96 @@ function handleBusEvent(event, payload) {
     } else if (event.startsWith("long_horizon.")) {
         loadLongHorizonTasks();
     } else if (event === "console.render_requested") {
-        if (State.pyapi && State.pyapi.open_render_window) {
-            State.pyapi.open_render_window(
-                payload.html,
-                payload.title || "WIS Render Engine",
-                payload.width || 800,
-                payload.height || 600
-            );
+        openRenderWindow(
+            payload.html,
+            payload.title || "WIS Render Engine",
+            payload.width || 800,
+            payload.height || 600,
+            payload.session_id || window.terminalManager.activeSessionId,
+            payload.render_id || null
+        );
+    } else if (event === "console.render_closed") {
+        forgetRenderWindow(payload.render_id);
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// WIS RENDER ENGINE — MULTI-WINDOW PER SESSION
+// ═══════════════════════════════════════════════════════════════════
+
+function nextRenderId(sessionId) {
+    const count = (State.renderCounters.get(sessionId) || 0) + 1;
+    State.renderCounters.set(sessionId, count);
+    return `${sessionId}-view-${count}`;
+}
+
+/**
+ * Opens (or updates) a render window owned by a session.
+ * Omitting renderId always creates a new window, so a console can open
+ * as many as it needs; passing an existing renderId refreshes that window.
+ */
+function openRenderWindow(html, title, width, height, sessionId, renderId = null) {
+    const sid = sessionId || "default";
+    const id = renderId || nextRenderId(sid);
+    if (!State.renderWindows.has(sid)) State.renderWindows.set(sid, new Map());
+    const sessionWindows = State.renderWindows.get(sid);
+
+    // Native pywebview bridge: one real OS window per renderId.
+    if (State.pyapi && State.pyapi.open_render_window) {
+        State.pyapi.open_render_window(html, title, width, height, id);
+        sessionWindows.set(id, { mode: "native" });
+        return id;
+    }
+
+    // Browser fallback: reuse the existing tab by navigating it in place.
+    fetch("/api/render", {
+        method: "POST",
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ html, title, width, height, render_id: id, session_id: sid }),
+    }).then(res => res.json()).then(data => {
+        if (!data.url) return;
+        const existing = sessionWindows.get(id);
+        if (existing && existing.window && !existing.window.closed) {
+            existing.window.location.replace(data.url);
+            existing.window.focus();
+            return;
         }
+        const popup = window.open(data.url, "_blank", `width=${width},height=${height}`);
+        sessionWindows.set(id, { mode: "browser", window: popup, url: data.url });
+    }).catch(err => {
+        appendSystemMessage("Render window error: " + err.message, sid);
+    });
+    return id;
+}
+
+function forgetRenderWindow(renderId) {
+    if (!renderId) return;
+    State.renderWindows.forEach(sessionWindows => sessionWindows.delete(renderId));
+}
+
+/** Closes every render window owned by a session. */
+window.closeSessionRenderWindows = function (sessionId) {
+    const sid = sessionId || window.terminalManager.activeSessionId;
+    const sessionWindows = State.renderWindows.get(sid);
+    if (!sessionWindows) return 0;
+    let closed = 0;
+    sessionWindows.forEach((entry, renderId) => {
+        fetch(`/api/render/${encodeURIComponent(renderId)}`, {
+            method: "DELETE",
+            headers: getAuthHeaders(),
+        }).catch(() => { });
+        if (entry.mode === "browser" && entry.window && !entry.window.closed) {
+            entry.window.close();
+        }
+        closed += 1;
+    });
+    sessionWindows.clear();
+    return closed;
+};
+
+function subscribeWebSocketSession(sessionId) {
+    if (State.ws && State.ws.readyState === WebSocket.OPEN && sessionId) {
+        State.ws.send(JSON.stringify({ type: "subscribe_session", session_id: sessionId }));
     }
 }
 
@@ -674,8 +790,13 @@ function appendSystemMessage(text, sessionId = null) {
     if (term) term.appendSystemMessage(text);
 }
 
-function appendStreamChunk(chunk) {
-    if (!State.currentStreamMsg) {
+function appendStreamChunk(chunk, sessionId = null) {
+    const streamKey = sessionId || window.terminalManager.activeSessionId;
+    let streamMsg = State.currentStreamMessages.get(streamKey);
+    const terminal = window.terminalManager.getTerminal(streamKey) || window.terminalManager.getActiveTerminal();
+    if (!terminal) return;
+
+    if (!streamMsg) {
         const el = document.createElement("div");
         el.className = "msg msg-wis";
         el.innerHTML = `
@@ -685,13 +806,14 @@ function appendStreamChunk(chunk) {
             </div>
             <div class="msg-bubble"></div>
         `;
-        Dom.terminalOutput.appendChild(el);
-        State.currentStreamMsg = el.querySelector(".msg-bubble");
+        terminal.output.appendChild(el);
+        streamMsg = el.querySelector(".msg-bubble");
+        State.currentStreamMessages.set(streamKey, streamMsg);
     }
 
-    State.currentStreamMsg.dataset.raw = (State.currentStreamMsg.dataset.raw || "") + chunk;
+    streamMsg.dataset.raw = (streamMsg.dataset.raw || "") + chunk;
     
-    let displayRaw = State.currentStreamMsg.dataset.raw;
+    let displayRaw = streamMsg.dataset.raw;
     const jsonMatch = displayRaw.match(/(?:```(?:json)?\s*)?\{\s*"(?:tool_calls|calls)"\s*:/);
     if (jsonMatch) {
         displayRaw = displayRaw.substring(0, jsonMatch.index).trim();
@@ -702,8 +824,8 @@ function appendStreamChunk(chunk) {
         }
     }
     
-    State.currentStreamMsg.innerHTML = formatMarkdown(displayRaw);
-    scrollTerminalToBottom();
+    streamMsg.innerHTML = formatMarkdown(displayRaw);
+    terminal.scrollToBottom();
 }
 
 function renderFullResponse(data) {
@@ -776,34 +898,103 @@ function escapeHtml(str) {
 }
 
 function formatMarkdown(src) {
-    let out = escapeHtml(src);
+    const source = String(src || "");
+    const blocks = [];
+    const inlineCode = [];
+    const stash = (html, target, prefix) => {
+        const key = `\u0000MD${prefix}${target.length}\u0000`;
+        target.push(html);
+        return key;
+    };
 
-    // Code blocks ```code```
-    out = out.replace(/```([a-zA-Z0-9_-]*)\n([\s\S]*?)```/g, (_, lang, code) => {
-        return `<pre><code class="lang-${lang}">${code.trim()}</code></pre>`;
+    let text = escapeHtml(source).replace(/```([a-zA-Z0-9_+.#-]*)\s*\n?([\s\S]*?)```/g, (_, lang, code) => {
+        const label = lang ? `<span class="md-code-lang">${escapeHtml(lang)}</span>` : "";
+        return stash(`<div class="md-code-block">${label}<pre><code>${code.trim()}</code></pre></div>`, blocks, "B");
     });
+    text = text.replace(/`([^`\n]+)`/g, (_, code) => stash(`<code>${code}</code>`, inlineCode, "I"));
 
-    // Inline code `code`
-    out = out.replace(/`([^`]+)`/g, '<code>$1</code>');
+    const formatInline = (value) => value
+        .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+        .replace(/__([^_]+)__/g, "<strong>$1</strong>")
+        .replace(/\*([^*\n]+)\*/g, "<em>$1</em>")
+        .replace(/_([^_\n]+)_/g, "<em>$1</em>")
+        .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
 
-    // Bold **text**
-    out = out.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+    const lines = text.split("\n");
+    const html = [];
+    let listType = null;
+    const closeList = () => {
+        if (listType) html.push(`</${listType}>`);
+        listType = null;
+    };
 
-    // Italic *text*
-    out = out.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+    for (const rawLine of lines) {
+        const line = rawLine.trimEnd();
+        const heading = line.match(/^(#{1,3})\s+(.+)$/);
+        const unordered = line.match(/^\s*[-*]\s+(.+)$/);
+        const ordered = line.match(/^\s*\d+[.)]\s+(.+)$/);
 
-    // Newlines to <br> (outside pre)
-    const parts = out.split(/(<pre>[\s\S]*?<\/pre>)/);
-    for (let i = 0; i < parts.length; i += 2) {
-        parts[i] = parts[i].replace(/\n/g, "<br>");
+        if (!line.trim()) {
+            closeList();
+            html.push('<div class="md-spacer"></div>');
+        } else if (heading) {
+            closeList();
+            const level = heading[1].length;
+            html.push(`<h${level}>${formatInline(heading[2])}</h${level}>`);
+        } else if (unordered || ordered) {
+            const nextType = unordered ? "ul" : "ol";
+            if (listType !== nextType) {
+                closeList();
+                listType = nextType;
+                html.push(`<${listType}>`);
+            }
+            html.push(`<li>${formatInline((unordered || ordered)[1])}</li>`);
+        } else if (/^\s*(---+|\*\*\*+)\s*$/.test(line)) {
+            closeList();
+            html.push('<hr>');
+        } else if (/^>\s?/.test(line)) {
+            closeList();
+            html.push(`<blockquote>${formatInline(line.replace(/^>\s?/, ""))}</blockquote>`);
+        } else {
+            closeList();
+            html.push(`<p>${formatInline(line)}</p>`);
+        }
     }
-    return parts.join("");
+    closeList();
+
+    let out = html.join("");
+    out = out.replace(/\u0000MD([BI])(\d+)\u0000/g, (_, kind, index) => {
+        const position = Number(index);
+        return kind === "B" ? (blocks[position] || "") : (inlineCode[position] || "");
+    });
+    return out;
 }
 
 // ─── Input Submission ─────────────────────────────────────────────
 
+// Aborta el turno cognitivo EN EL SERVIDOR. Abortar el fetch solo corta la
+// conexion HTTP: el turno seguia ejecutandose y la sesion quedaba bloqueada
+// con "A cognitive turn is already running for this session."
+window.cancelServerTurn = function(sessionId) {
+    const sid = sessionId || "default";
+    try {
+        fetch("/api/cancel", {
+            method: "POST",
+            headers: getAuthHeaders(),
+            body: JSON.stringify({ session_id: sid }),
+            keepalive: true,
+        }).catch(() => { /* la cancelacion es best-effort */ });
+    } catch (e) { /* noop */ }
+    try {
+        if (window.ws && window.ws.readyState === WebSocket.OPEN) {
+            window.ws.send(JSON.stringify({ type: "cancel", session_id: sid }));
+        }
+    } catch (e) { /* noop */ }
+};
+
 window.sendChatRequest = async function(text, terminalInstance) {
     if (!text || terminalInstance.isThinking) return;
+    terminalInstance.cancelled = false;
     
     stopTtsAudio();
     terminalInstance.appendUserMessage(text); 
@@ -839,10 +1030,17 @@ window.sendChatRequest = async function(text, terminalInstance) {
                 playTtsAudio(data.response);
             }
         }
+
+        if (/^\/delete\s+/i.test(text) && terminalInstance.sessionId !== "main") {
+            window.terminalManager.closeTerminal(terminalInstance.sessionId);
+            loadProjects();
+        }
         
         // Render tool calls
         if (data.calls && data.calls.length > 0) {
-            let toolsHtml = '<div class="msg-tools-box">';
+            let toolsHtml = `<details class="msg-tools-box">
+                <summary>Tool activity (${data.calls.length})</summary>
+                <div class="msg-tools-list">`;
             for (let i = 0; i < data.calls.length; i++) {
                 const call = data.calls[i];
                 const resObj = data.results && data.results[i] ? data.results[i] : { ok: true };
@@ -851,10 +1049,10 @@ window.sendChatRequest = async function(text, terminalInstance) {
                 
                 toolsHtml += `<div class="msg-tool-item">
                     <span class="tool-icon ${cname}">${icon}</span>
-                    <span class="tool-action">${call.action}</span>
+                    <span class="tool-action">${call.action || call.name || "tool"}</span>
                 </div>`;
             }
-            toolsHtml += '</div>';
+            toolsHtml += '</div></details>';
             
             const msg = document.createElement("div");
             msg.className = "msg msg-wis";
@@ -878,17 +1076,24 @@ window.startVoiceInput = async function() {
     const term = window.terminalManager.getActiveTerminal();
     if (!term) return;
     
-    term.appendSystemMessage("🎙 Listening to hardware microphone (5s)...");
+    term.appendSystemMessage("Listening to hardware microphone (5s)...");
 
     try {
         const res = await fetch("/api/listen", {
             method: "POST",
             headers: getAuthHeaders(),
+            body: JSON.stringify({ language: "en-US", timeout: 5.0 }),
         });
         const data = await res.json();
 
         if (data.transcribed_text) {
-            window.sendChatRequest(data.transcribed_text, term);
+            term.appendUserMessage(data.transcribed_text);
+            if (data.response) {
+                term.appendAssistantMessage(data.response);
+                if (State.ttsEnabled) {
+                    playTtsAudio(data.response);
+                }
+            }
         } else {
             term.appendSystemMessage(data.message || "No speech detected.");
         }
@@ -901,7 +1106,7 @@ async function uploadFile(file) {
     const term = window.terminalManager.getActiveTerminal();
     if (!file || !term) return;
     
-    term.appendSystemMessage(`📎 Uploading '${file.name}'...`);
+    term.appendSystemMessage(`Uploading '${file.name}'...`);
 
     const formData = new FormData();
     formData.append("file", file);
@@ -993,8 +1198,8 @@ async function playTtsAudio(text) {
 // ═══════════════════════════════════════════════════════════════════
 
 async function refreshPanels() {
-    loadGoals();
-    loadLongHorizonTasks();
+    loadProjects();
+    loadTasks();
     loadSecurityMode();
 }
 
@@ -1002,65 +1207,143 @@ async function loadHardwareList() {
     // Hardware graph panel removed from UI
 }
 
+async function loadProjects() {
+    if (!Dom.projectTree) return;
+    try {
+        const res = await fetch("/api/projects", { headers: getAuthHeaders() });
+        if (!res.ok) return;
+        const data = await res.json();
+        const projects = data.projects || [];
+        if (!projects.length) {
+            Dom.projectTree.innerHTML = `<div class="empty-state">No projects found</div>`;
+            return;
+        }
+        Dom.projectTree.innerHTML = projects.map(project => `
+            <button class="project-node" type="button" data-session-id="${escapeHtml(project.session_id)}">
+                <span class="project-node-icon">▸</span>
+                <span class="project-node-copy">
+                    <span class="project-node-name">${escapeHtml(project.name)}</span>
+                    <span class="project-node-meta">${project.has_history ? `${project.history_count} turns` : "New session"} · ${project.focused_count || 0} focused · ${project.trace_count || 0} trace</span>
+                </span>
+                <span class="project-node-status">${project.has_history ? "●" : "○"}</span>
+            </button>
+        `).join("");
+        Dom.projectTree.querySelectorAll(".project-node").forEach(node => {
+            node.addEventListener("click", () => openProjectSession(node.dataset.sessionId));
+        });
+    } catch (e) {
+        Dom.projectTree.innerHTML = `<div class="empty-state">Projects unavailable</div>`;
+        console.error("Projects sync error:", e);
+    }
+}
+
+async function openProjectSession(sessionId) {
+    if (!sessionId || !window.terminalManager) return;
+    const terminal = await window.terminalManager.openSession(sessionId);
+    window.terminalManager.instances.forEach(instance => {
+        instance.element.classList.toggle("project-selected", instance === terminal);
+    });
+}
+
 function updateTelemetryCard(data) {
     // Telemetry panel removed from UI
 }
 
-async function loadGoals() {
+async function loadTasks() {
     try {
-        const res = await fetch("/api/goals", { headers: getAuthHeaders() });
+        const res = await fetch("/api/tasks", { headers: getAuthHeaders() });
         if (!res.ok) return;
         const data = await res.json();
-        const goals = data.goals || [];
+        const tasks = (data.tasks || []).filter(task => task.status === "executing");
 
         if (Dom.goalList) {
-            if (goals.length === 0) {
-                Dom.goalList.innerHTML = `<div class="empty-state">No active goals</div>`;
+            if (tasks.length === 0) {
+                Dom.goalList.innerHTML = `<div class="empty-state">No active tasks</div>`;
                 return;
             }
-            Dom.goalList.innerHTML = goals.map(g => {
-                const pct = Math.round((g.progress || 0) * 100);
+            Dom.goalList.innerHTML = tasks.map(g => {
+                let statusColor = "var(--text-color)";
+                if (g.status === "failed") statusColor = "var(--red)";
+                if (g.status === "done") statusColor = "var(--green)";
+                if (g.status === "executing") statusColor = "var(--cyan)";
                 return `
                     <div class="item-card">
                         <div class="item-hd">
                             <span class="item-name">${escapeHtml(g.text)}</span>
-                            <span class="badge">P${g.priority}</span>
+                            <div style="display:flex; gap: 6px; align-items:center;">
+                                <button class="mini-btn" onclick="window.viewTaskLogs('${g.id}')" title="View Logs">Logs</button>
+                                <button class="mini-btn danger" onclick="window.deleteTask('${g.id}')" title="Kill Task">X</button>
+                            </div>
                         </div>
-                        <div class="item-meta">${escapeHtml(g.status || "active")} · ${pct}%</div>
-                        <div class="progress-bar-wrap">
-                            <div class="progress-bar-val" style="width:${pct}%"></div>
-                        </div>
+                        <div class="item-meta" style="color:${statusColor}">${escapeHtml(g.status || "active")}</div>
+                        <div class="item-meta" style="font-size:10px; margin-top:4px;">${escapeHtml(g.result || g.error || "")}</div>
                     </div>
                 `;
             }).join("");
         }
-    } catch (_) { }
+    } catch (e) {
+        console.error("Tasks sync error:", e);
+    }
 }
 
-async function loadLongHorizonTasks() {
+window.deleteTask = async function(taskId) {
+    if (!confirm("Are you sure you want to stop and delete this task?")) return;
     try {
-        const res = await fetch("/api/tasks/long", { headers: getAuthHeaders() });
-        if (!res.ok) return;
-        const data = await res.json();
-        const tasks = data.tasks || [];
-
-        if (Dom.lhTaskList) {
-            if (tasks.length === 0) {
-                Dom.lhTaskList.innerHTML = `<div class="empty-state">No long-horizon tasks</div>`;
-                return;
-            }
-            Dom.lhTaskList.innerHTML = tasks.map(t => `
-                <div class="item-card">
-                    <div class="item-hd">
-                        <span class="item-name">${escapeHtml(t.text)}</span>
-                        <span class="badge">${escapeHtml(t.status)}</span>
-                    </div>
-                    <div class="item-meta">Steps: ${t.current_step}/${t.total_steps || "?"}</div>
-                </div>
-            `).join("");
+        const res = await fetch(`/api/tasks/${taskId}`, {
+            method: 'DELETE',
+            headers: getAuthHeaders()
+        });
+        if (res.ok) {
+            loadTasks();
+        } else {
+            console.error("Failed to delete task");
         }
-    } catch (_) { }
-}
+    } catch (e) {
+        console.error("Error deleting task:", e);
+    }
+};
+
+let _logInterval = null;
+
+window.viewTaskLogs = function(taskId) {
+    const modal = document.getElementById("log-modal");
+    const output = document.getElementById("log-output");
+    if (!modal || !output) return;
+    
+    modal.classList.remove("hidden");
+    output.textContent = "Loading logs...";
+    
+    // Fetch immediately
+    const fetchLogs = async () => {
+        try {
+            const res = await fetch(`/api/tasks/${taskId}/logs`, { headers: getAuthHeaders() });
+            if (res.ok) {
+                const data = await res.json();
+                const wasAtBottom = output.scrollHeight - output.scrollTop <= output.clientHeight + 20;
+                output.textContent = data.logs || "No logs yet.";
+                if (wasAtBottom) {
+                    output.scrollTop = output.scrollHeight;
+                }
+            }
+        } catch (e) {
+            console.error("Log fetch error:", e);
+        }
+    };
+    
+    fetchLogs();
+    
+    // Poll every 2 seconds
+    if (_logInterval) clearInterval(_logInterval);
+    _logInterval = setInterval(fetchLogs, 2000);
+    
+    const closeBtn = document.getElementById("btn-log-close");
+    if (closeBtn) {
+        closeBtn.onclick = () => {
+            modal.classList.add("hidden");
+            if (_logInterval) clearInterval(_logInterval);
+        };
+    }
+};
 
 function addTraceEntry(event, data) {
     if (!Dom.traceList) return;
@@ -1105,7 +1388,7 @@ function setSecurityModeUI(mode) {
     State.securityMode = mode || "secure";
     if (Dom.pillMode) {
         Dom.pillMode.textContent = State.securityMode.toUpperCase();
-        Dom.pillMode.className = "hud-pill " + (State.securityMode === "privileged" ? "yellow" : "green");
+        Dom.pillMode.className = "hud-pill hud-pill-btn " + (State.securityMode === "privileged" ? "yellow" : "green");
     }
 }
 
@@ -1161,7 +1444,7 @@ function initModals() {
     if (Dom.btnAuthorize) Dom.btnAuthorize.addEventListener("click", () => handleApproval(true));
     if (Dom.btnDeny) Dom.btnDeny.addEventListener("click", () => handleApproval(false));
 
-    // Goal Modal
+    // Task Modal
     if (Dom.btnAddGoal) Dom.btnAddGoal.addEventListener("click", () => {
         Dom.goalInput.value = "";
         Dom.goalModal.classList.remove("hidden");
@@ -1180,59 +1463,28 @@ function initModals() {
             const priority = parseInt(Dom.goalPriority.value, 10) || 5;
             Dom.goalModal.classList.add("hidden");
             try {
-                await fetch("/api/goals", {
+                await fetch("/api/tasks", {
                     method: "POST",
                     headers: getAuthHeaders(),
                     body: JSON.stringify({ text, priority }),
                 });
-                loadGoals();
-                appendSystemMessage(`Goal launched: '${text}' [P${priority}]`);
+                loadTasks();
+                appendSystemMessage(`Background task spawned: '${text}'`);
             } catch (e) {
-                appendSystemMessage("Failed to create goal: " + e.message);
-            }
-        });
-    }
-
-    // Long Horizon Task Modal
-    if (Dom.btnAddLhTask) Dom.btnAddLhTask.addEventListener("click", () => {
-        Dom.lhTaskInput.value = "";
-        Dom.lhModal.classList.remove("hidden");
-        Dom.lhTaskInput.focus();
-    });
-    if (Dom.btnLhCancel) Dom.btnLhCancel.addEventListener("click", () => Dom.lhModal.classList.add("hidden"));
-    if (Dom.lhPriority) {
-        Dom.lhPriority.addEventListener("input", (e) => {
-            Dom.lhPriorityVal.textContent = e.target.value;
-        });
-    }
-    if (Dom.btnLhSubmit) {
-        Dom.btnLhSubmit.addEventListener("click", async () => {
-            const text = Dom.lhTaskInput.value.trim();
-            if (!text) return;
-            const priority = parseInt(Dom.lhPriority.value, 10) || 5;
-            Dom.lhModal.classList.add("hidden");
-            try {
-                await fetch("/api/tasks/long", {
-                    method: "POST",
-                    headers: getAuthHeaders(),
-                    body: JSON.stringify({ text, priority }),
-                });
-                loadLongHorizonTasks();
-                appendSystemMessage(`Long-horizon daemon started: '${text}' [P${priority}]`);
-            } catch (e) {
-                appendSystemMessage("Failed to start long-horizon task: " + e.message);
+                appendSystemMessage("Failed to create task: " + e.message);
             }
         });
     }
 }
 
 function openNewRenderWindow() {
+    const sessionId = (window.terminalManager && window.terminalManager.activeSessionId) || "main";
     const html = `
         <!DOCTYPE html>
         <html>
         <head>
             <meta charset="utf-8">
-            <title>WIS View</title>
+            <title>WIS View · ${escapeHtml(sessionId)}</title>
             <style>
                 body { background: #050508; color: #8b5cf6; font-family: monospace; padding: 20px; }
                 h2 { color: #06b6d4; }
@@ -1240,6 +1492,7 @@ function openNewRenderWindow() {
         </head>
         <body>
             <h2>W·I·S AGI Viewport</h2>
+            <p>Session: <strong>${escapeHtml(sessionId)}</strong></p>
             <p>Native pywebview multi-window render engine online.</p>
             <div id="clock"></div>
             <script>
@@ -1251,19 +1504,8 @@ function openNewRenderWindow() {
         </html>
     `;
 
-    if (State.pyapi && State.pyapi.open_render_window) {
-        State.pyapi.open_render_window(html, "WIS Render Engine", 800, 600);
-    } else {
-        fetch("/api/render", {
-            method: "POST",
-            headers: getAuthHeaders(),
-            body: JSON.stringify({ html, title: "WIS Render Engine" }),
-        }).then(res => res.json()).then(d => {
-            if (d.url) window.open(d.url, "_blank", "width=800,height=600");
-        }).catch(err => {
-            appendSystemMessage("Render window error: " + err.message);
-        });
-    }
+    // No renderId: every click opens an additional independent window.
+    openRenderWindow(html, `WIS Render Engine · ${sessionId}`, 800, 600, sessionId);
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -1313,11 +1555,9 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     // Toggle button handlers
     if (Dom.btnToggleRight) Dom.btnToggleRight.addEventListener("click", () => toggleSidebar("right"));
-    if (Dom.btnToggleBoth) Dom.btnToggleBoth.addEventListener("click", () => toggleBothSidebars());
     if (Dom.btnCloseRight) Dom.btnCloseRight.addEventListener("click", () => toggleSidebar("right"));
-
-    // Security & TTS buttons
-    if (Dom.btnSecurity) Dom.btnSecurity.addEventListener("click", toggleSecurityMode);
+    // Pill-mode button toggles security mode directly
+    if (Dom.pillMode) Dom.pillMode.addEventListener("click", toggleSecurityMode);
     if (Dom.btnTts) {
         Dom.btnTts.classList.toggle("active", State.ttsEnabled);
         Dom.btnTts.addEventListener("click", () => {
@@ -1344,6 +1584,10 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     // Connect & boot
     await fetchBootstrapToken();
+    window.terminalManager.createTerminal("main");
+    await window.terminalManager.restorePersistentState();
     initWebSocket();
     runBootSequence();
+
+
 });

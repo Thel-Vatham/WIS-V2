@@ -94,7 +94,21 @@ class LLMClient:
             "temperature": temperature,
         }
         if tools:
-            payload["tools"] = tools
+            strict_tools = []
+            for t in tools:
+                if isinstance(t, dict) and "function" in t:
+                    tool_copy = dict(t)
+                    fn = dict(tool_copy["function"])
+                    if "parameters" in fn:
+                        params = dict(fn["parameters"])
+                        params["additionalProperties"] = False
+                        fn["parameters"] = params
+                    fn["strict"] = True
+                    tool_copy["function"] = fn
+                    strict_tools.append(tool_copy)
+                else:
+                    strict_tools.append(t)
+            payload["tools"] = strict_tools
 
         headers = {
             "Content-Type": "application/json",
@@ -200,6 +214,16 @@ class LLMClient:
             except (httpx.TransportError, httpx.TimeoutException) as exc:
                 logger.warning("Network error on attempt %d: %s", attempt, exc)
                 if attempt == self.max_retries:
+                    openrouter_key = os.environ.get("OPENROUTER_API_KEY")
+                    if openrouter_key and "openrouter" not in self.base_url:
+                        logger.info("LLMClient: Connection failed. Failing over to OpenRouter API...")
+                        self.base_url = "https://openrouter.ai/api/v1"
+                        self.api_key = openrouter_key
+                        self.model = "deepseek/deepseek-chat"
+                        url = f"{self.base_url}{CHAT_COMPLETIONS_PATH}"
+                        headers["Authorization"] = f"Bearer {self.api_key}"
+                        payload["model"] = self.model
+                        continue
                     raise LLMError(f"Connection failed: {exc}") from exc
                 await asyncio.sleep(self.backoffs[min(attempt - 1, len(self.backoffs) - 1)])
 

@@ -4,11 +4,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WIS — Cognitive OS</title>
+    <title>WIS — Sistema de Inteligencia Avanzada</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link
         href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@300;400;500;600&family=Space+Grotesk:wght@400;500;600;700&display=swap"
         rel="stylesheet">
+    <link rel="icon" type="image/png" href="wise.png">
     <link rel="stylesheet" href="style.css">
 </head>
 
@@ -27,8 +28,9 @@
     <!-- ══════════════ BOOT OVERLAY ══════════════ -->
     <div id="boot-overlay" class="boot-overlay">
         <div class="boot-content">
+            <img src="wise.png" class="boot-logo" alt="WIS">
             <div class="boot-mark">W·I·S</div>
-            <div class="boot-subtitle">Cognitive Operating System &mdash; v2.0</div>
+            <div class="boot-subtitle">Agente Autonomo Industrial &mdash; v3.0</div>
             <div class="boot-log-area" id="boot-log"></div>
             <div class="boot-bar">
                 <div id="boot-fill" class="boot-fill"></div>
@@ -45,18 +47,13 @@
             <div class="tb-left">
                 <div class="wis-orb" id="wis-orb" title="Status"></div>
                 <span class="tb-name">W·I·S</span>
-                <span class="tb-tag">Cognitive OS</span>
             </div>
-            <div class="tb-center" id="tb-status">SYSTEM ONLINE</div>
+            <div class="tb-center online" id="tb-status">SYSTEM ONLINE</div>
             <div class="tb-right">
-                <span class="hud-pill" id="pill-mode" title="Security mode">PRIVILEGED</span>
-                <span class="hud-pill dim" id="pill-path" title="Last cognitive path">None</span>
-                <span class="hud-pill green" id="pill-ws" title="WebSocket">WS</span>
+                <button class="hud-pill hud-pill-btn yellow" id="pill-mode" title="Click para cambiar modo (Privileged / Secure)">PRIVILEGED</button>
                 <span class="tb-divider"></span>
-                <button class="tb-btn tb-toggle-btn" id="btn-toggle-both" title="Modo Enfoque — Consola Completa 100% (Ctrl+\)">Expand</button>
                 <button class="tb-btn tb-toggle-btn" id="btn-toggle-right" title="Ocultar / Mostrar Panel Derecho (Ctrl+])">Sidebar</button>
                 <span class="tb-divider"></span>
-                <button class="tb-btn" id="btn-security" title="Toggle security mode">Sec</button>
                 <button class="tb-btn" id="btn-tts" title="Toggle TTS">Audio</button>
                 <button class="tb-btn" id="btn-new-window" title="Open render window">Render</button>
                 <button class="tb-btn" id="btn-minimize" title="Minimize">Min</button>
@@ -97,11 +94,14 @@
                         <span class="thinking-label">WIS is reasoning...</span>
                         <button class="mini-btn danger ml-auto" action="cancel">Cancel</button>
                     </div>
-                    <div class="input-row">
+                    <div style="position: relative;">
+                        <div class="command-autocomplete hidden"></div>
+                        <div class="input-row">
                         <textarea class="terminal-input" placeholder="Speak your intent or command..." rows="1" autocomplete="off" spellcheck="false"></textarea>
                         <button class="tb-btn" action="mic" title="Voice input">Mic</button>
                         <button class="tb-btn" action="upload" title="Upload file">Attach</button>
                         <button class="tb-btn accent" action="send" title="Send">Send</button>
+                    </div>
                     </div>
                 </main>
             </template>
@@ -114,34 +114,29 @@
             <!-- RIGHT SIDEBAR -->
             <aside class="sidebar right-sidebar" id="right-sidebar">
                 <div class="sidebar-top-bar">
-                    <span class="sidebar-top-title">PLANES & TRAZAS</span>
+                    <span class="sidebar-top-title">ACTIVE TASKS</span>
                     <button class="mini-btn close-sidebar-btn" id="btn-close-right" title="Ocultar panel derecho (Ctrl+])">Hide</button>
                 </div>
-                <section class="panel" data-collapsible>
+                <section class="panel project-panel" data-collapsible>
                     <div class="panel-hd">
-                        <span class="panel-hd-title">Goal Queue</span>
+                        <span class="panel-hd-title"><span class="panel-chevron">›</span> PROJECTS</span>
+                        <button class="mini-btn" id="btn-refresh-projects" title="Refresh projects">Refresh</button>
+                    </div>
+                    <div class="project-tree" id="project-tree">
+                        <div class="empty-state">Loading projects...</div>
+                    </div>
+                </section>
+                <section class="panel flex1" data-collapsible>
+                    <div class="panel-hd">
+                        <span class="panel-hd-title"><span class="panel-chevron">›</span> Task List</span>
                         <div class="panel-hd-right">
-                            <button class="mini-btn" id="btn-add-goal">Add</button>
+                            <button class="mini-btn" id="btn-add-goal">New Task</button>
                         </div>
                     </div>
                     <div class="panel-body" id="goal-list">
-                        <div class="empty-state">No active goals</div>
+                        <div class="empty-state">No active tasks</div>
                     </div>
                 </section>
-
-                <section class="panel flex1" data-collapsible>
-                    <div class="panel-hd">
-                        <span class="panel-hd-title">Long Horizon Tasks</span>
-                        <div class="panel-hd-right">
-                            <button class="mini-btn" id="btn-add-lh-task">Add</button>
-                        </div>
-                    </div>
-                    <div class="panel-body" id="lh-task-list">
-                        <div class="empty-state">No long-horizon tasks</div>
-                    </div>
-                </section>
-
-
             </aside>
 
         </div>
@@ -161,37 +156,29 @@
 
     <div id="goal-modal" class="modal-overlay hidden">
         <div class="modal-card">
-            <h3>Create Goal</h3>
-            <input type="text" id="goal-input" class="modal-input" placeholder="Describe the objective..."
+            <h3>Create Background Task</h3>
+            <p class="modal-hint">WIS will spawn an isolated worker process to execute this task in parallel.</p>
+            <input type="text" id="goal-input" class="modal-input" placeholder="Describe the task..."
                 autocomplete="off">
-            <div class="priority-row">
+            <div class="priority-row" style="display:none;">
                 <label>Priority</label>
                 <input type="range" id="goal-priority" min="1" max="10" value="5">
                 <span id="goal-priority-val" class="badge">5</span>
             </div>
             <div class="modal-btns">
                 <button class="modal-btn deny" id="btn-goal-cancel">Cancel</button>
-                <button class="modal-btn authorize" id="btn-goal-submit">Launch</button>
+                <button class="modal-btn authorize" id="btn-goal-submit">Spawn Worker</button>
             </div>
         </div>
     </div>
 
-    <div id="lh-modal" class="modal-overlay hidden">
-        <div class="modal-card">
-            <h3>Long-Horizon Task</h3>
-            <p class="modal-hint">WIS will autonomously plan and execute this over multiple steps, persisting even when
-                the console closes.</p>
-            <textarea id="lh-task-input" class="modal-input" rows="3" placeholder="Describe the long-term objective..."
-                autocomplete="off"></textarea>
-            <div class="priority-row">
-                <label>Priority</label>
-                <input type="range" id="lh-priority" min="1" max="10" value="5">
-                <span id="lh-priority-val" class="badge">5</span>
+    <div id="log-modal" class="modal-overlay hidden">
+        <div class="modal-card" style="max-width: 800px; width: 90%; max-height: 80vh; display: flex; flex-direction: column;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                <h3 style="margin: 0; color: var(--cyan);">Task Logs Terminal</h3>
+                <button class="mini-btn danger" id="btn-log-close">Close</button>
             </div>
-            <div class="modal-btns">
-                <button class="modal-btn deny" id="btn-lh-cancel">Cancel</button>
-                <button class="modal-btn authorize" id="btn-lh-submit">Start Daemon</button>
-            </div>
+            <pre id="log-output" style="background: #000; color: #0f0; padding: 10px; border-radius: 4px; overflow-y: auto; flex: 1; font-family: monospace; font-size: 11px; white-space: pre-wrap; margin: 0; border: 1px solid var(--border-color);"></pre>
         </div>
     </div>
 

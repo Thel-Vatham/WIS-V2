@@ -45,9 +45,12 @@ async def test_pipeline_queries_routed_to_llm(hardware_memory: HardwareMemory):
 
 
 @pytest.mark.asyncio
-async def test_pipeline_skill_memory_cached_dispatch(hardware_memory: HardwareMemory):
+async def test_pipeline_skill_memory_cached_hint(hardware_memory: HardwareMemory):
     mock_reasoning = MagicMock(spec=ReasoningEngine)
-    mock_reasoning.think = AsyncMock()
+    mock_reasoning.think = AsyncMock(return_value={
+        "text": "The cached skill is available as a hint.",
+        "calls": [],
+    })
     mock_skill_mem = MagicMock(spec=SkillMemory)
     # Simular una habilidad ya aprendida y sintetizada
     mock_skill_mem.lookup.return_value = {
@@ -61,9 +64,96 @@ async def test_pipeline_skill_memory_cached_dispatch(hardware_memory: HardwareMe
         hardware_memory=hardware_memory,
     )
 
-    # Consulta aprendida -> ejecutada directamente desde SkillMemory
+    # A learned skill is supplied as a hint to the current ReAct loop.
     result = await pipeline.process("rutina sintetizada")
-    assert result["path_used"] == "known"
-    assert "Cached synthesis" in result["response"]
-    # No llama al LLM porque ya fue probado y adquirido
-    mock_reasoning.think.assert_not_called()
+    assert result["path_used"] == "new"
+    mock_reasoning.think.assert_called()
+
+
+@pytest.mark.asyncio
+async def test_pipeline_deduplicates_repeated_side_effect_calls(hardware_memory: HardwareMemory):
+    abilities = MagicMock()
+    abilities.execute = AsyncMock(return_value={"success": True, "data": {"opened": True}})
+    safety = MagicMock()
+    safety.check.return_value = (True, "")
+    safety.needs_approval.return_value = False
+
+    pipeline = ActionPipeline(
+        reasoning=MagicMock(spec=ReasoningEngine),
+        skill_memory=MagicMock(spec=SkillMemory),
+        abilities=abilities,
+        safety=safety,
+        hardware_memory=hardware_memory,
+    )
+    calls = [
+        {"skill": "system", "action": "execute_shell", "params": {"command": "start photo.png"}},
+        {"skill": "system", "action": "execute_shell", "params": {"command": "start photo.png"}},
+    ]
+
+    results, ok = await pipeline._execute_calls(calls, session_id="main", executed_calls=set())
+
+    assert ok is True
+    assert abilities.execute.await_count == 1
+    assert results[1]["output"]["reason"] == "duplicate_call_in_request"
+
+
+@pytest.mark.asyncio
+async def test_pipeline_allows_retry_after_failed_call(hardware_memory: HardwareMemory):
+    abilities = MagicMock()
+    abilities.execute = AsyncMock(side_effect=[
+        {"success": False, "error": "temporary failure"},
+        {"success": True, "data": {"recovered": True}},
+    ])
+    safety = MagicMock()
+    safety.check.return_value = (True, "")
+    safety.needs_approval.return_value = False
+    pipeline = ActionPipeline(
+        reasoning=MagicMock(spec=ReasoningEngine),
+        skill_memory=MagicMock(spec=SkillMemory),
+        abilities=abilities,
+        safety=safety,
+        hardware_memory=hardware_memory,
+    )
+    call = {"skill": "system", "action": "execute_shell", "params": {"command": "echo retry"}}
+    seen = set()
+
+    first, first_ok = await pipeline._execute_calls([call], executed_calls=seen)
+    second, second_ok = await pipeline._execute_calls([call], executed_calls=seen)
+
+    assert first_ok is False
+    assert second_ok is True
+    assert first[0]["ok"] is False
+    assert second[0]["ok"] is True
+    assert abilities.execute.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_pipeline_stops_after_repeated_successful_turn(hardware_memory: HardwareMemory):
+    call = {"skill": "system", "action": "execute_shell", "params": {"command": "start photo.png"}}
+    reasoning = MagicMock(spec=ReasoningEngine)
+    reasoning.think = AsyncMock(side_effect=[
+        {"text": "", "calls": [call]},
+        {"text": "", "calls": [call]},
+        {"text": "should not reach this step", "calls": []},
+    ])
+    abilities = MagicMock()
+    abilities.execute = AsyncMock(return_value={"success": True, "data": {"opened": True}})
+    skill_memory = MagicMock(spec=SkillMemory)
+    skill_memory.lookup.return_value = None
+    safety = MagicMock()
+    safety.check.return_value = (True, "")
+    safety.needs_approval.return_value = False
+    pipeline = ActionPipeline(
+        reasoning=reasoning,
+        skill_memory=skill_memory,
+        abilities=abilities,
+        safety=safety,
+        max_steps=50,
+        hardware_memory=hardware_memory,
+    )
+
+    result = await pipeline.process("open photo", session_id="main")
+
+    assert reasoning.think.await_count == 2
+    assert abilities.execute.await_count == 1
+    assert result["steps_used"] == 2

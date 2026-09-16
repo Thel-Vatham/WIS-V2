@@ -1,11 +1,4 @@
-"""
-Smoke test verifying the full refactored stack:
-- AdvancedDesktopAbility
-- LongHorizonEngine persistence and execution
-- Server endpoints (FastAPI create_app, health, auth bootstrap, long horizon CRUD, render)
-"""
-import asyncio
-import json
+"""Smoke tests for the current WIS console and ability stack."""
 from pathlib import Path
 import sys
 
@@ -15,7 +8,6 @@ if str(root) not in sys.path:
     sys.path.insert(0, str(root))
 
 from abilities.pc.advanced_desktop_ability import AdvancedDesktopAbility
-from core.long_horizon import LongHorizonEngine
 from console.server import create_app, WISCoreContainer
 import pytest
 from fastapi.testclient import TestClient
@@ -37,54 +29,8 @@ def test_advanced_desktop():
     print(f"[OK] AdvancedDesktopAbility: {len(schema)} actions registered.")
 
 
-@pytest.fixture
-def engine(tmp_path):
-    data_dir = tmp_path / "data_lh"
-    data_dir.mkdir(parents=True, exist_ok=True)
-
-    class MockPipeline:
-        async def process(self, text, **kwargs):
-            return {"success": True, "response": f"Processed: {text}"}
-
-    class MockLLM:
-        async def chat(self, messages, **kwargs):
-            return {"text": json.dumps({"steps": ["Step A: check", "Step B: apply"]})}
-
-    return LongHorizonEngine(
-        data_dir=data_dir,
-        pipeline=MockPipeline(),
-        llm_client=MockLLM(),
-        poll_interval=0.1,
-    )
-
-
-def test_long_horizon_engine(engine):
-    # Create task
-    task = engine.create_task("Analyze and optimize system", priority=9)
-    assert task.status == "pending"
-    assert task.priority == 9
-
-    # List tasks
-    all_tasks = engine.list_tasks()
-    assert any(t["id"] == task.id for t in all_tasks)
-
-    # Pause / Resume / Cancel lifecycle
-    task.status = "running"
-    assert engine.pause_task(task.id) is True
-    assert task.status == "paused"
-    assert engine.resume_task(task.id) is True
-    assert task.status == "running"
-    assert engine.cancel_task(task.id) is True
-    assert task.status == "cancelled"
-
-    # Journal
-    journal = engine.get_journal(task.id)
-    assert len(journal) >= 1
-    print(f"[OK] LongHorizonEngine: task {task.id[:8]} full lifecycle tested.")
-
-
-def test_fastapi_server(engine):
-    container = WISCoreContainer(long_horizon=engine)
+def test_fastapi_server():
+    container = WISCoreContainer()
     app = create_app(core=container, auth_token="test-secret-token")
     client = TestClient(app)
 
@@ -101,23 +47,18 @@ def test_fastapi_server(engine):
     assert data["token"] == "test-secret-token"
     print("[OK] /api/auth/bootstrap passed")
 
-    # 3. Long Horizon tasks API
+    # 3. Session API
     headers = {"Authorization": "Bearer test-secret-token"}
-    res = client.get("/api/tasks/long", headers=headers)
+    res = client.get("/api/sessions", headers=headers)
     assert res.status_code == 200
-    assert isinstance(res.json(), list) or "tasks" in res.json()
-    print("[OK] GET /api/tasks/long passed")
+    assert "sessions" in res.json()
+    print("[OK] GET /api/sessions passed")
 
-    # Create new task via API
-    res = client.post(
-        "/api/tasks/long",
-        headers=headers,
-        json={"text": "E2E automated verification", "priority": 7},
-    )
+    res = client.get("/api/projects", headers=headers)
     assert res.status_code == 200
-    new_task = res.json()["task"]
-    assert new_task["priority"] == 7
-    print("[OK] POST /api/tasks/long passed:", new_task["id"][:8])
+    assert "projects" in res.json()
+    assert all("session_id" in project for project in res.json()["projects"])
+    print("[OK] GET /api/projects passed")
 
     # 4. Render API
     res = client.post(
@@ -132,10 +73,39 @@ def test_fastapi_server(engine):
     assert "WIS AGI Window" in res.text
     print("[OK] /api/render passed:", render_id)
 
+    # 4b. A session can open many render windows
+    first = client.post(
+        "/api/render",
+        headers=headers,
+        json={"html": "<p>one</p>", "title": "A", "session_id": "main"},
+    ).json()
+    second = client.post(
+        "/api/render",
+        headers=headers,
+        json={"html": "<p>two</p>", "title": "B", "session_id": "main"},
+    ).json()
+    assert first["render_id"] != second["render_id"]
+    assert first["session_id"] == "main"
+    assert client.get(f"/api/render/{second['render_id']}").text == "<p>two</p>"
+    print("[OK] multiple render windows per session passed")
+
+    # 4c. Reusing a render_id updates that window instead of creating another
+    updated = client.post(
+        "/api/render",
+        headers=headers,
+        json={"html": "<p>updated</p>", "title": "A2", "render_id": first["render_id"]},
+    ).json()
+    assert updated["render_id"] == first["render_id"]
+    assert client.get(f"/api/render/{first['render_id']}").text == "<p>updated</p>"
+    closed = client.delete(f"/api/render/{first['render_id']}", headers=headers).json()
+    assert closed["closed"] is True
+    assert client.get(f"/api/render/{first['render_id']}").status_code == 404
+    print("[OK] idempotent render_id passed")
+
     # 5. Static assets verification
     res = client.get("/console/index.html")
     assert res.status_code == 200
-    assert "WIS — Cognitive OS" in res.text
+    assert "WIS" in res.text
     print("[OK] /console/index.html served correctly")
 
     res = client.get("/console/style.css")
@@ -148,11 +118,7 @@ def test_fastapi_server(engine):
 
 
 if __name__ == "__main__":
-    import tempfile
     print("=== STARTING SMOKE TESTS ===")
     test_advanced_desktop()
-    with tempfile.TemporaryDirectory() as td:
-        eng = engine(Path(td))
-        test_long_horizon_engine(eng)
-        test_fastapi_server(eng)
+    test_fastapi_server()
     print("\n>>> ALL SMOKE TESTS PASSED SUCCESSFULLY! <<<")

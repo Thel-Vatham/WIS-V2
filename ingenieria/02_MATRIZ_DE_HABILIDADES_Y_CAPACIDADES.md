@@ -78,7 +78,7 @@ El ecosistema de habilidades de WIS consta de **19 habilidades activas** agrupad
 #### `mqtt_comm` (`abilities/mqtt_comm.py`)
 - **Acciones:**
   - `connect_broker(host, port, client_id)`: Establece conexión con el broker MQTT local o remoto.
-  - `publish(topic, payload, qos)`: Publica comandos o telemetría con soporte de QoS 0, 1 y 2.
+  - `publish(topic, mensaje, qos)`: Publica comandos o telemetría con soporte de QoS 0, 1 y 2.
   - `subscribe(topic)`: Escucha eventos de sensores y los redirige al `EventBus` interno.
 
 #### `toolchain` (`abilities/toolchain.py`)

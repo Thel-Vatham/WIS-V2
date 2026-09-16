@@ -23,6 +23,11 @@ from .base import Ability
 logger = logging.getLogger("wis.abilities.registry")
 
 
+_global_registry: Optional[AbilityRegistry] = None
+
+def get_global_registry() -> AbilityRegistry:
+    return _global_registry
+
 class AbilityRegistry:
     """
     Registro central de habilidades.
@@ -34,6 +39,9 @@ class AbilityRegistry:
     """
 
     def __init__(self):
+        global _global_registry
+        if _global_registry is None:
+            _global_registry = self
         # Mapa nombre -> instancia de Ability
         self._abilities: Dict[str, Ability] = {}
 
@@ -316,6 +324,45 @@ class AbilityRegistry:
         except Exception as e:
             logger.warning("No se pudo cargar DiscoveryAbility: %s", e)
 
+
+        # ── Antigravity-grade PC abilities ──────────────────────────────────
+        # code_tools: surgical file editing (grep, view, replace, write)
+        try:
+            from .pc.code_tools import (
+                code_view_file, code_replace_content, code_grep,
+                code_list_dir, code_write_file, code_multi_replace,
+            )
+            from .pc.code_ability import CodeToolsAbility
+            registry.register(CodeToolsAbility())
+        except Exception as e:
+            logger.warning("No se pudo cargar CodeToolsAbility: %s", e)
+
+        try:
+            from .advanced_desktop_ability import AdvancedDesktopAbility
+            registry.register(AdvancedDesktopAbility())
+        except Exception:
+            pass
+
+        # Swarm Core Abilities
+        try:
+            from .antigravity_tools import AntigravityToolsAbility
+            registry.register(AntigravityToolsAbility())
+            from .dev_agent import DevAgent
+            registry.register(DevAgent())
+            from .pc_agent import PCAgent
+            registry.register(PCAgent())
+            from .persistent_terminal import PersistentTerminalAbility
+            registry.register(PersistentTerminalAbility())
+            from .research_agent import ResearchAgent
+            registry.register(ResearchAgent())
+            from .runtime_manager import RuntimeManager
+            registry.register(RuntimeManager())
+            from .nao_robot import NAORobotAbility
+            registry.register(NAORobotAbility())
+            from .telepathy import SwarmTelepathyAbility
+            registry.register(SwarmTelepathyAbility())
+        except Exception as e:
+            logger.warning("Fallo al cargar Swarm Core Abilities: %s", e)
 
         # Cargar habilidades custom generadas dinamicamente (robots, IoT, etc.)
         registry.load_custom_directory()

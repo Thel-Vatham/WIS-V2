@@ -74,7 +74,7 @@ WIS puede funcionar de manera autónoma sin conexión a Internet:
 
 ## 4. Ejecución del Sistema
 
-### Modo A: Ventana de Escritorio Hacker (Recomendado)
+### Modo A: Interfaz de Escritorio Nativa (Recomendado)
 ```powershell
 python main.py
 ```

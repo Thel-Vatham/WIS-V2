@@ -1,11 +1,11 @@
 # 📑 WIS v3.0 — Carpeta de Ingeniería
 ## Índice Maestro y Resumen Ejecutivo del Sistema
 
-**Wisdom Integrated System (WIS) v3.0** es un sistema operativo cognitivo y sistema nervioso agéntico diseñado específicamente para desarrolladores e ingenieros de hardware/software. WIS unifica razonamiento LLM de vanguardia, control nativo de sistemas operativos (Windows/DWM/PowerShell), visión por computadora (SOM/OCR), compilación y flasheo de microcontroladores (Serial/MQTT/PlatformIO) y ejecución autónoma de tareas de largo horizonte bajo una interfaz terminal hacker de alta densidad.
+**Wisdom Integrated System (WIS) v3.0** es un sistema operativo cognitivo y sistema nervioso agéntico diseñado específicamente para desarrolladores e ingenieros de hardware/software. WIS unifica razonamiento LLM de vanguardia, control nativo de sistemas operativos (Windows/DWM/PowerShell), visión por computadora (SOM/OCR), compilación y flasheo de microcontroladores (Serial/MQTT/PlatformIO) y ejecución autónoma de tareas de largo horizonte bajo una interfaz de línea de comandos extendida de alta densidad.
 
 ---
 
-### 🗂️ Estructura del Proyecto y Carga Útil (Payload)
+### 🗂️ Estructura del Proyecto
 
 La raíz de WIS ha sido auditada y depurada para contener estrictamente los módulos operativos requeridos por el sistema:
 
@@ -34,12 +34,12 @@ D:\WIS\
 ├── config/                 # Configuración del sistema
 │   └── settings.json       # Parámetros de runtime, seguridad, modelos y puertos
 │
-├── console/                # Consola Hacker y Servidor Backend
+├── console/                # Consola de Administración y Servidor Backend
 │   ├── server.py           # Backend FastAPI (REST + WebSockets en tiempo real)
 │   ├── web_view.py         # Ventana de escritorio nativa PyWebView frameless
-│   └── web/                # Frontend terminal hacker (HTML5/CSS3/Vanilla JS)
+│   └── web/                # Frontend de interfaz avanzada (HTML5/CSS3/Vanilla JS)
 │       ├── index.html      # Estructura terminal, side-panels y modal de seguridad
-│       ├── style.css       # Estética cyberpunk/CRT, fuentes monospace, neon
+│       ├── style.css       # Interfaz de alto contraste, orientada a desarrollo
 │       └── app.js          # Conexión WebSocket, streams de DAG y telemetría
 │
 ├── core/                   # Núcleo Cognitivo y Sistema Nervioso Agéntico
@@ -54,7 +54,7 @@ D:\WIS\
 │   ├── pipeline.py         # ActionPipeline Pure-LLM con tool calling paralelo y SkillMemory
 │   ├── proactivity.py      # Motor proactivo autónomo basado en reglas
 │   ├── reasoning.py        # ReasoningEngine / Cortex con prompting estricto en inglés
-│   ├── safety.py           # Aegis Safety Policy (Modos Secure y Privileged)
+│   ├── safety.py           # Políticas de Seguridad Estricta (Modos Secure y Privileged)
 │   ├── skill_memory.py     # Memoria de secuencias exitosas (FAISS IndexFlatIP)
 │   ├── skill_synthesizer.py# Meta-programador de nuevas habilidades con sandbox AST
 │   ├── swarm.py            # Coordinador de enjambre multi-agente
@@ -74,7 +74,7 @@ D:\WIS\
 │   ├── 01_ARQUITECTURA_COGNITIVA_Y_PIPELINE.md
 │   ├── 02_MATRIZ_DE_HABILIDADES_Y_CAPACIDADES.md
 │   ├── 03_MOTOR_DE_HARDWARE_Y_TELEMETRIA.md
-│   ├── 04_INTERFAZ_HACKER_Y_API_SERVER.md
+│   ├── 04_INTERFAZ_USUARIO_Y_API_SERVER.md
 │   └── 05_OPERACIONES_DESPLIEGUE_Y_MANTENIMIENTO.md
 │
 ├── models/                 # Modelos locales para inferencia en CPU
@@ -102,13 +102,13 @@ D:\WIS\
    Explica en detalle los 4 caminos cognitivos (Path 0 al 3), la paralelización de llamadas con `asyncio.gather`, el Verificador Metacognitivo, el lazo cerrado de telemetría y el motor de misiones DAG.
 
 2. **[02. Matriz de Habilidades y Capacidades](file:///d:/WIS/ingenieria/02_MATRIZ_DE_HABILIDADES_Y_CAPACIDADES.md)**  
-   Especificación formal de las 19 habilidades activas, sus acciones, esquemas de entrada/salida y políticas de seguridad Aegis.
+   Especificación formal de las 19 habilidades activas, sus acciones, esquemas de entrada/salida y políticas de seguridad del sistema.
 
 3. **[03. Motor de Hardware y Telemetría](file:///d:/WIS/ingenieria/03_MOTOR_DE_HARDWARE_Y_TELEMETRIA.md)**  
    Detalles de los protocolos serie (UART/RS232), broker MQTT, grafo de dispositivos en SQLite, toolchains (PlatformIO/esptool) y validación física de ejecución.
 
-4. **[04. Interfaz Hacker y API Server](file:///d:/WIS/ingenieria/04_INTERFAZ_HACKER_Y_API_SERVER.md)**  
-   Arquitectura visual del frontend terminal, PyWebView frameless, endpoints REST de FastAPI, streams bidireccionales WebSocket y modal de autorización de acciones críticas.
+4. **[04. Interfaz de Usuario y API Server](file:///d:/WIS/ingenieria/04_INTERFAZ_USUARIO_Y_API_SERVER.md)**  
+   Arquitectura visual del frontend avanzado, PyWebView frameless, endpoints REST de FastAPI, streams bidireccionales WebSocket y modal de autorización de acciones críticas.
 
 5. **[05. Operaciones, Despliegue y Mantenimiento](file:///d:/WIS/ingenieria/05_OPERACIONES_DESPLIEGUE_Y_MANTENIMIENTO.md)**  
    Manual de puesta en marcha, variables de entorno, configuración offline/local CPU, ejecución de tests de regresión y diagnóstico de problemas.

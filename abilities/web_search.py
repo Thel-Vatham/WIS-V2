@@ -216,28 +216,36 @@ class WebSearchAbility(Ability):
             return f"No images found for: '{query}'"
 
     def _search_wikipedia(self, query: str) -> str | None:
-        try:
-            import requests
-            response = requests.get(
-                "https://es.wikipedia.org/w/api.php",
-                params={"action": "query", "list": "search",
-                        "srsearch": query, "utf8": "", "format": "json"},
-                timeout=10,
-            )
-            response.raise_for_status()
-            results = response.json().get("query", {}).get("search", [])
-            if not results:
-                return None
-            lines = [f"**Search (Wikipedia):** {query}\n"]
-            for item in results[:3]:
-                title = item.get("title", "")
-                snippet = re.sub("<[^<]+>", "", item.get("snippet", ""))[:220].strip()
-                url = f"https://es.wikipedia.org/wiki/{title.replace(' ', '_')}"
-                lines.append(f"- **{title}**")
-                if snippet:
-                    lines.append(f"  {snippet}...")
-                lines.append(f"  {url}")
-            return "\n".join(lines)
-        except Exception as exc:
-            logger.error(f"Wikipedia error: {exc}")
-            return None
+        """Search Wikipedia with a proper User-Agent to avoid 403 blocks."""
+        import urllib.request, urllib.parse
+        # Try English Wikipedia first, then Spanish
+        for lang in ("en", "es"):
+            try:
+                params = urllib.parse.urlencode({
+                    "action": "query", "list": "search",
+                    "srsearch": query, "utf8": "", "format": "json",
+                    "srlimit": 3,
+                })
+                url = f"https://{lang}.wikipedia.org/w/api.php?{params}"
+                req = urllib.request.Request(url, headers={
+                    "User-Agent": "WIS-Agent/3.0 (https://wis.local; contact@wis.local) Python/3.11",
+                    "Accept": "application/json",
+                })
+                with urllib.request.urlopen(req, timeout=8) as resp:
+                    data = __import__("json").loads(resp.read().decode("utf-8"))
+                results = data.get("query", {}).get("search", [])
+                if not results:
+                    continue
+                lines = [f"**Search (Wikipedia-{lang.upper()}):** {query}\n"]
+                for item in results[:3]:
+                    title = item.get("title", "")
+                    snippet = re.sub("<[^<]+>", "", item.get("snippet", ""))[:220].strip()
+                    url_link = f"https://{lang}.wikipedia.org/wiki/{urllib.parse.quote(title.replace(' ', '_'))}"
+                    lines.append(f"- **{title}**")
+                    if snippet:
+                        lines.append(f"  {snippet}...")
+                    lines.append(f"  {url_link}")
+                return "\n".join(lines)
+            except Exception as exc:
+                logger.error(f"Wikipedia error ({lang}): {exc}")
+        return None

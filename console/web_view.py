@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from .server import WISCoreContainer, start_server_thread
 
@@ -23,7 +23,7 @@ class WISJsApi:
 
     def __init__(self) -> None:
         self._window: Any = None
-        self._render_windows: list[Any] = []
+        self._render_windows: dict[str, Any] = {}
 
     def set_window(self, win: Any) -> None:
         self._window = win
@@ -55,10 +55,31 @@ class WISJsApi:
         title: str = "WIS Render Engine",
         width: int = 800,
         height: int = 600,
+        render_id: Optional[str] = None,
     ) -> None:
-        """Abre una nueva ventana nativa pywebview renderizando HTML arbitrario."""
+        """Abre o actualiza una ventana nativa pywebview renderizando HTML arbitrario.
+
+        Si se pasa `render_id` y esa ventana sigue viva, se reutiliza y solo se
+        reemplaza su contenido; asi un contador o panel puede refrescarse sin
+        acumular ventanas duplicadas.
+        """
         try:
             import webview
+            window_id = render_id or f"render-{len(self._render_windows) + 1}"
+
+            existing = self._render_windows.get(window_id)
+            if existing is not None:
+                try:
+                    existing.load_html(html)
+                    try:
+                        existing.set_title(title)
+                    except Exception:
+                        pass
+                    return
+                except Exception as exc:
+                    logger.debug("Could not reuse render window %s (%s); recreating.", window_id, exc)
+                    self._render_windows.pop(window_id, None)
+
             win = webview.create_window(
                 title=title,
                 html=html,
@@ -68,9 +89,40 @@ class WISJsApi:
                 easy_drag=True,
                 background_color="#050508",
             )
-            self._render_windows.append(win)
+            self._render_windows[window_id] = win
+
+            def _forget_window() -> None:
+                self._render_windows.pop(window_id, None)
+
+            try:
+                win.events.closed += _forget_window
+            except Exception:
+                logger.debug("Could not attach render window cleanup handler.")
         except Exception as e:
             logger.warning("open_render_window failed: %s", e)
+
+    def close_render_window(self, render_id: str) -> bool:
+        """Cierra una ventana de render concreta sin tocar las demas."""
+        win = self._render_windows.pop(str(render_id), None)
+        if win is None:
+            return False
+        try:
+            win.destroy()
+        except Exception as e:
+            logger.debug("Could not destroy render window %s: %s", render_id, e)
+        return True
+
+    def close_session_render_windows(self, session_id: str) -> int:
+        """Cierra todas las ventanas de render que pertenecen a una sesion."""
+        prefix = f"{session_id}-view-"
+        render_ids = [key for key in list(self._render_windows) if key.startswith(prefix)]
+        for render_id in render_ids:
+            self.close_render_window(render_id)
+        return len(render_ids)
+
+    def list_render_windows(self) -> list:
+        """Lista los identificadores de ventanas de render abiertas."""
+        return list(self._render_windows.keys())
 
     def get_window_rect(self) -> dict:
         """Devuelve la posicion y dimensiones actuales de la ventana nativa."""
@@ -139,13 +191,14 @@ def _wait_for_server(url: str, timeout: float = 10.0) -> bool:
 
 def launch_console(
     url: str = "http://127.0.0.1:8770/console/",
-    title: str = "WIS — Cognitive OS",
+    title: str = "WIS — Agente Autonomo Industrial",
     width: int = 1200,
     height: int = 820,
     core: Optional[WISCoreContainer] = None,
     auth_token: Optional[str] = None,
     cors_origins: Optional[list] = None,
     frameless: bool = True,
+    on_port: Optional[Callable[[int], None]] = None,
     **_webview_kwargs: Any,
 ) -> None:
     """Abre la consola de WIS en una ventana nativa de pywebview.
@@ -175,10 +228,13 @@ def launch_console(
         except Exception:
             pass
 
-    start_server_thread(
+    stop_server = start_server_thread(
         host=host, port=port, core=core,
         auth_token=auth_token, cors_origins=cors_origins,
     )
+    port = getattr(stop_server, "port", port)
+    if on_port:
+        on_port(port)
 
     # Espera a que el servidor este listo antes de abrir la ventana.
     base = f"http://{host}:{port}/"
@@ -205,10 +261,18 @@ def launch_console(
             title_ = evt.get("title", "WIS Render Engine")
             w = evt.get("width", 800)
             h = evt.get("height", 600)
+            render_id = evt.get("render_id")
             if html:
-                api.open_render_window(html=html, title=title_, width=w, height=h)
+                api.open_render_window(
+                    html=html, title=title_, width=w, height=h, render_id=render_id
+                )
 
         event_bus.subscribe("console.render_requested", _on_render_event)
+
+        def _on_render_closed(evt: dict) -> None:
+            api.close_render_window(str(evt.get("render_id", "")))
+
+        event_bus.subscribe("console.render_closed", _on_render_closed)
     except Exception as e:
         logger.warning("Could not subscribe to console.render_requested: %s", e)
 
