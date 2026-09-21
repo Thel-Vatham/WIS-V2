@@ -83,7 +83,7 @@ _DANGEROUS_IMPORTS = frozenset(
 )
 _DANGEROUS_CALLS = frozenset(
     {
-        "system", "popen", "execv", "execvp", "spawnv", "spawnl", "run", "call", "check_output", "Popen",
+        "system", "popen", "execv", "execvp", "spawnv", "spawnl", "check_output", "Popen",
         "rmtree", "remove", "unlink", "rmdir", "removedirs", "kill", "terminate", "startfile", "ShellExecuteW",
         "CreateProcessW",
     }

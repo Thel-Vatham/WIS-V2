@@ -1582,12 +1582,30 @@ document.addEventListener("DOMContentLoaded", async () => {
         };
     }
 
-    // Connect & boot
+    // Check if running in standalone popout window mode (?standalone=1&session=...)
+    const urlParams = new URLSearchParams(window.location.search);
+    const isStandalone = urlParams.get("standalone") === "1" || urlParams.get("standalone") === "true";
+    const targetSession = urlParams.get("session") || "main";
+
+    if (isStandalone) {
+        document.body.classList.add("standalone-terminal");
+        if (Dom.bootOverlay) Dom.bootOverlay.remove();
+        if (Dom.root) Dom.root.classList.remove("hidden");
+        document.title = `WIS · Terminal [${targetSession}]`;
+
+        await fetchBootstrapToken();
+        const term = window.terminalManager.createTerminal(targetSession);
+        window.terminalManager.setActive(targetSession);
+        initWebSocket();
+        await term.restoreHistory();
+        if (term.input) term.input.focus();
+        return;
+    }
+
+    // Connect & boot (Normal Mode)
     await fetchBootstrapToken();
     window.terminalManager.createTerminal("main");
     await window.terminalManager.restorePersistentState();
     initWebSocket();
     runBootSequence();
-
-
 });

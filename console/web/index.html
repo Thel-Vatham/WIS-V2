@@ -69,10 +69,29 @@
             <div class="multi-terminal-container">
                 <!-- TAB DOCK -->
                 <div class="terminal-dock" id="terminal-dock">
-                    <button class="tb-btn accent ml-auto" id="btn-new-term" title="New Terminal (Ctrl+T)">+</button>
+                    <div class="terminal-dock-tabs" id="terminal-dock-tabs"></div>
+                    <div class="terminal-dock-controls ml-auto">
+                        <div class="layout-picker-wrapper" id="layout-picker-wrapper">
+                            <button class="tb-btn layout-picker-btn" id="btn-layout-picker" type="button" title="Distribución de cuadrícula (Layout)">
+                                <span id="current-layout-icon">⊞</span>
+                                <span id="current-layout-label">2x2</span>
+                                <span class="layout-chevron">▾</span>
+                            </button>
+                            <div class="layout-dropdown hidden" id="layout-dropdown">
+                                <div class="layout-option" data-layout="1x1" title="1x1: Foco en pestaña individual"><span class="layout-opt-icon">🗖</span> 1x1 Foco</div>
+                                <div class="layout-option" data-layout="1x2" title="1x2: 2 Columnas verticales"><span class="layout-opt-icon">❚❚</span> 1x2 Columnas</div>
+                                <div class="layout-option" data-layout="2x1" title="2x1: 2 Filas horizontales"><span class="layout-opt-icon">〓</span> 2x1 Filas</div>
+                                <div class="layout-option active" data-layout="2x2" title="2x2: Cuadrícula de 4 cuadrantes"><span class="layout-opt-icon">⊞</span> 2x2 Cuadrícula</div>
+                                <div class="layout-option" data-layout="3x3" title="3x3: Cuadrícula de 9"><span class="layout-opt-icon">▤</span> 3x3 Cuadrícula</div>
+                                <div class="layout-option" data-layout="4x4" title="4x4: Cuadrícula de 16"><span class="layout-opt-icon">▦</span> 4x4 Cuadrícula</div>
+                                <div class="layout-option" data-layout="auto" title="Auto: Adaptable según número de ventanas"><span class="layout-opt-icon">❖</span> Auto Dinámico</div>
+                            </div>
+                        </div>
+                        <button class="tb-btn accent" id="btn-new-term" title="New Terminal (Ctrl+T)">+</button>
+                    </div>
                 </div>
                 <!-- TERMINAL GRID -->
-                <div class="terminal-grid" id="terminal-grid">
+                <div class="terminal-grid layout-2x2" id="terminal-grid">
                     <!-- Terminal instances will be injected here by app.js -->
                 </div>
             </div>
@@ -84,6 +103,8 @@
                         <div class="terminal-drag-handle">≡</div>
                         <span class="terminal-title">Terminal</span>
                         <div class="terminal-actions">
+                            <button class="tb-btn" action="popout" title="Desacoplar en ventana externa (Popout)">⧉</button>
+                            <button class="tb-btn" action="float" title="Desanclar / Ventana flotante">🗗</button>
                             <button class="tb-btn" action="minimize" title="Minimize to dock">_</button>
                             <button class="tb-btn danger" action="close" title="Close">X</button>
                         </div>

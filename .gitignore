@@ -28,6 +28,7 @@ models/*.onnx
 *.caffemodel
 *.gguf
 *.onnx
+models/voices.json
 
 # Archived experiments, demos and legacy projects
 old/

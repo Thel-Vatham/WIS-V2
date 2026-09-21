@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>WIS System Dashboard</title>
+  <link rel="stylesheet" href="/static/css/style.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="brand">
+        <span class="logo">◈</span>
+        <div>
+          <h1>WIS System Dashboard</h1>
+          <p class="subtitle" id="hostname">Real-time monitoring · CPU · RAM · Processes · Logs</p>
+        </div>
+      </div>
+      <div class="status">
+        <span class="dot" id="conn-dot"></span>
+        <span id="conn-text">Connecting…</span>
+        <span class="clock" id="clock">--:--:--</span>
+      </div>
+    </header>
+
+    <section class="gauges">
+      <div class="card gauge">
+        <div class="gauge-label">CPU</div>
+        <canvas id="cpuGauge" width="160" height="160"></canvas>
+        <div class="gauge-value" id="cpu-val">0%</div>
+      </div>
+      <div class="card gauge">
+        <div class="gauge-label">RAM</div>
+        <canvas id="ramGauge" width="160" height="160"></canvas>
+        <div class="gauge-value" id="ram-val">0%</div>
+      </div>
+      <div class="card gauge">
+        <div class="gauge-label">DISK</div>
+        <canvas id="diskGauge" width="160" height="160"></canvas>
+        <div class="gauge-value" id="disk-val">0%</div>
+      </div>
+      <div class="card stat">
+        <div class="stat-title">Active Processes</div>
+        <div class="stat-value" id="proc-count">0</div>
+        <div class="stat-sub" id="proc-sub">—</div>
+      </div>
+      <div class="card stat">
+        <div class="stat-title">Uptime</div>
+        <div class="stat-value" id="uptime">—</div>
+        <div class="stat-sub" id="boot-time">boot —</div>
+      </div>
+    </section>
+
+    <section class="charts">
+      <div class="card chart-card">
+        <h2>CPU &amp; RAM History</h2>
+        <canvas id="historyChart" height="220"></canvas>
+      </div>
+    </section>
+
+    <section class="grid-two">
+      <div class="card">
+        <h2>Top Processes</h2>
+        <div class="table-wrap">
+          <table id="proc-table">
+            <thead>
+              <tr><th>PID</th><th>Name</th><th>CPU %</th><th>MEM %</th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>WIS Logs <span class="live-tag">live</span></h2>
+        <div class="log-box" id="log-box"></div>
+      </div>
+    </section>
+
+    <footer class="footer">
+      <span>WIS-V2 · FastAPI backend</span>
+      <span id="last-update">—</span>
+    </footer>
+  </div>
+
+  <script src="/static/js/dashboard.js"></script>
+</body>
+</html>

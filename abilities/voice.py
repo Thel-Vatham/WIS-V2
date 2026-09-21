@@ -95,7 +95,7 @@ class VoiceAbility(Ability):
 
             if not model_path.exists() or model_path.stat().st_size < 1000000:
                 logger.info("Downloading Kokoro-82M ONNX model to Data/kokoro...")
-                req = urllib.request.Request("https://huggingface.co/thewh1teagle/Kokoro/resolve/main/kokoro-v0_19.onnx", headers=headers)
+                req = urllib.request.Request("https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files/kokoro-v0_19.onnx", headers=headers)
                 with urllib.request.urlopen(req) as resp:
                     with tempfile.NamedTemporaryFile(delete=False) as tmp:
                         tmp.write(resp.read())

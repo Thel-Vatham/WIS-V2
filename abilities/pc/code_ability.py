@@ -142,15 +142,21 @@ class CodeToolsAbility(Ability):
                 return {"success": True, "data": r, "message": r}
 
             if a == "run_python":
-                r = await asyncio.to_thread(
-                    run_python_code,
-                    params.get("code", ""),
-                    timeout=int(params.get("timeout", 30)),
-                )
-                if not isinstance(r, dict):
-                    r = {"returncode": 1, "stdout": "", "stderr": str(r)}
-                ok = r.get("returncode", 1) == 0
-                return {"success": ok, "data": r, "message": r.get("stdout", "") + r.get("stderr", "")}
+                try:
+                    r = await asyncio.to_thread(
+                        run_python_code,
+                        params.get("code", ""),
+                        timeout=int(params.get("timeout", 30)),
+                    )
+                    if isinstance(r, dict):
+                        ok = r.get("returncode", 0) == 0
+                        out = r.get("stdout", "") + r.get("stderr", "")
+                    else:
+                        out = str(r or "")
+                        ok = not out.strip().startswith("Error:") and "Traceback (most recent call last):" not in out
+                    return {"success": ok, "data": out, "message": out}
+                except Exception as e:
+                    return {"success": False, "data": str(e), "message": f"Error: {e}"}
 
             if a == "ast_inspect_symbols":
                 r = ast_inspect_symbols(params.get("path", ""))

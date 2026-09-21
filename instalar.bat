@@ -202,6 +202,18 @@ echo    [OK] Chromium embebido desplegado exitosamente.
 echo.
 
 :: =====================================================================
+::  PASO 7.5 — Descarga de Modelos de Inteligencia Artificial Pesados
+:: =====================================================================
+echo  [7.5/8] Validando y descargando modelos IA pesados (Vision y Voz)...
+"!VENV_PYTHON!" "%PROJECT_ROOT%\scripts\download_assets.py"
+if errorlevel 1 (
+    echo    [ERROR] Fallo en la descarga de activos IA. Abortando.
+    pause
+    exit /b 1
+)
+echo.
+
+:: =====================================================================
 ::  PASO 8 — Inicializacion de Entorno y Datos
 :: =====================================================================
 echo  [8/8] Configurando carpetas y credenciales base...
@@ -232,8 +244,12 @@ set "HEALTH_OK=1"
 "!VENV_PYTHON!" -c "import cv2" 2>nul || (echo    [FAIL] opencv-python & set "HEALTH_OK=0")
 "!VENV_PYTHON!" -c "import pyaudio" 2>nul || (echo    [FAIL] pyaudio & set "HEALTH_OK=0")
 "!VENV_PYTHON!" -c "import kokoro_onnx" 2>nul || (echo    [FAIL] kokoro-onnx & set "HEALTH_OK=0")
+"!VENV_PYTHON!" -c "import sounddevice" 2>nul || (echo    [FAIL] sounddevice & set "HEALTH_OK=0")
 "!VENV_PYTHON!" -c "import playwright" 2>nul || (echo    [FAIL] playwright & set "HEALTH_OK=0")
 "!VENV_PYTHON!" -c "import faiss" 2>nul || (echo    [FAIL] faiss-cpu & set "HEALTH_OK=0")
+
+if not exist "%PROJECT_ROOT%\models\detection\yolov4-tiny.weights" (echo    [FAIL] yolov4-tiny.weights missing & set "HEALTH_OK=0")
+if not exist "%PROJECT_ROOT%\models\kokoro-v0_19.onnx" (echo    [FAIL] kokoro-v0_19.onnx missing & set "HEALTH_OK=0")
 
 if "!HEALTH_OK!"=="0" (
     echo.

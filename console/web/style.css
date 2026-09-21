@@ -1,4 +1,4 @@
-﻿/* ═══════════════════════════════════════════════════════════════════════════════
+/* ═══════════════════════════════════════════════════════════════════════════════
    WIS COGNITIVE OS — Hacker Terminal Console Design System
    ═══════════════════════════════════════════════════════════════════════════════ */
 
@@ -875,18 +875,127 @@ body {
 .terminal-dock {
     display: flex;
     align-items: center;
-    background: rgba(0, 0, 0, 0.2);
+    background: rgba(0, 0, 0, 0.25);
     border-bottom: 1px solid var(--border);
-    padding: 4px 8px;
+    padding: 3px 8px;
     min-height: 36px;
+    gap: 6px;
+    position: relative;
+    user-select: none;
+}
+
+.terminal-dock-tabs {
+    display: flex;
+    align-items: center;
     gap: 4px;
+    flex: 1;
     overflow-x: auto;
+    scrollbar-width: none;
+}
+.terminal-dock-tabs::-webkit-scrollbar {
+    display: none;
+}
+
+.terminal-dock-controls {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: auto;
+    flex-shrink: 0;
+}
+
+.layout-picker-wrapper {
+    position: relative;
+}
+
+.layout-picker-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 9px;
+    font-size: 11px;
+    font-family: var(--font-mono);
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text-dim);
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.layout-picker-btn:hover {
+    background: rgba(6, 182, 212, 0.12);
+    border-color: var(--cyan);
+    color: var(--cyan);
+}
+
+.layout-chevron {
+    font-size: 9px;
+    opacity: 0.7;
+    margin-left: 2px;
+}
+
+.layout-dropdown {
+    position: absolute;
+    top: calc(100% + 5px);
+    right: 0;
+    background: #0d0f17;
+    border: 1px solid var(--border-bright, #2a2e40);
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.75);
+    border-radius: 6px;
+    padding: 4px;
+    display: flex;
+    flex-direction: column;
+    min-width: 175px;
+    z-index: 1000;
+    animation: fadeInMenu 0.15s ease-out;
+}
+
+@keyframes fadeInMenu {
+    from { opacity: 0; transform: translateY(-4px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.layout-dropdown.hidden {
+    display: none;
+}
+
+.layout-option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    font-size: 11px;
+    font-family: var(--font-mono);
+    color: var(--text-dim);
+    cursor: pointer;
+    border-radius: 4px;
+    transition: background 0.12s ease, color 0.12s ease;
+}
+
+.layout-option:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--text-main);
+}
+
+.layout-option.active {
+    background: rgba(6, 182, 212, 0.18);
+    color: var(--cyan);
+    font-weight: 600;
+}
+
+.layout-opt-icon {
+    font-size: 12px;
+    width: 18px;
+    display: inline-block;
+    text-align: center;
 }
 
 .terminal-tab {
     display: flex;
     align-items: center;
-    padding: 4px 12px;
+    gap: 6px;
+    padding: 4px 10px;
     background: rgba(255, 255, 255, 0.05);
     border: 1px solid var(--border);
     border-radius: 4px;
@@ -895,6 +1004,13 @@ body {
     font-family: var(--font-mono);
     cursor: pointer;
     user-select: none;
+    white-space: nowrap;
+    transition: all 0.15s ease;
+}
+
+.terminal-tab:hover {
+    background: rgba(255, 255, 255, 0.09);
+    color: var(--text-main);
 }
 
 .terminal-tab.active {
@@ -903,15 +1019,106 @@ body {
     color: var(--cyan);
 }
 
-.terminal-grid {
-    flex: 1;
-    display: flex;
-    flex-direction: row;
-    overflow: hidden;
+.terminal-tab.detached {
+    border-style: dashed;
+    opacity: 0.8;
 }
 
-.terminal-grid.split-col {
-    flex-direction: column;
+/* ════════════════════════════════════════════════════════════════
+   TERMINAL GRID SYSTEM (FLEXIBLE MULTI-WINDOW)
+   ════════════════════════════════════════════════════════════════ */
+
+.terminal-grid {
+    flex: 1;
+    display: grid;
+    gap: 2px;
+    background: #11131c;
+    overflow: auto;
+    position: relative;
+    width: 100%;
+    height: 100%;
+}
+
+/* 1x1 Focus Mode: Only the active terminal is visible, filling the area */
+.terminal-grid.layout-1x1 {
+    display: flex;
+    background: var(--bg);
+}
+.terminal-grid.layout-1x1 > .terminal-pane {
+    display: none;
+    flex: 1 1 100%;
+    width: 100%;
+    height: 100%;
+    border: none;
+}
+.terminal-grid.layout-1x1 > .terminal-pane.active-terminal {
+    display: flex;
+}
+
+/* 1x2 Layout: 2 Columns */
+.terminal-grid.layout-1x2 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-rows: 1fr;
+}
+
+/* 2x1 Layout: 2 Rows */
+.terminal-grid.layout-2x1 {
+    grid-template-columns: 1fr;
+    grid-template-rows: repeat(2, minmax(0, 1fr));
+}
+
+/* 2x2 Layout: 4 Quadrants (As requested by user) */
+.terminal-grid.layout-2x2 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-rows: repeat(2, minmax(0, 1fr));
+}
+
+/* 3x3 Layout: 9 Cells */
+.terminal-grid.layout-3x3 {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-rows: repeat(3, minmax(0, 1fr));
+}
+
+/* 4x4 Layout: 16 Cells */
+.terminal-grid.layout-4x4 {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-rows: repeat(4, minmax(0, 1fr));
+}
+
+/* Auto Layout: Adapts automatically based on open terminal count */
+.terminal-grid.layout-auto[data-count="1"] {
+    grid-template-columns: 1fr;
+    grid-template-rows: 1fr;
+}
+.terminal-grid.layout-auto[data-count="2"] {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-rows: 1fr;
+}
+.terminal-grid.layout-auto[data-count="3"],
+.terminal-grid.layout-auto[data-count="4"] {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-rows: repeat(2, minmax(0, 1fr));
+}
+.terminal-grid.layout-auto[data-count="5"],
+.terminal-grid.layout-auto[data-count="6"] {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-rows: repeat(2, minmax(0, 1fr));
+}
+.terminal-grid.layout-auto[data-count="7"],
+.terminal-grid.layout-auto[data-count="8"],
+.terminal-grid.layout-auto[data-count="9"] {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-rows: repeat(3, minmax(0, 1fr));
+}
+.terminal-grid.layout-auto[data-count="10"],
+.terminal-grid.layout-auto[data-count="11"],
+.terminal-grid.layout-auto[data-count="12"],
+.terminal-grid.layout-auto[data-count="13"],
+.terminal-grid.layout-auto[data-count="14"],
+.terminal-grid.layout-auto[data-count="15"],
+.terminal-grid.layout-auto[data-count="16"] {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-rows: repeat(4, minmax(0, 1fr));
 }
 
 /* ════════════════════════════════════════════════════════════════
@@ -919,24 +1126,76 @@ body {
    ════════════════════════════════════════════════════════════════ */
 
 .terminal-pane {
-    flex: 1 1 0;
     min-width: 0;
+    min-height: 0;
     display: flex;
     flex-direction: column;
     background: var(--bg);
     overflow: hidden;
     position: relative;
-    border-right: 1px solid var(--border);
+    border: 1px solid var(--border);
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
-.terminal-pane:last-child {
-    border-right: none;
+
+.terminal-pane.active-terminal {
+    border-color: rgba(6, 182, 212, 0.4);
 }
-.terminal-grid.split-col .terminal-pane {
-    border-right: none;
-    border-bottom: 1px solid var(--border);
+
+/* Floating Terminal Window (Drag / Float Mode) */
+.terminal-pane.is-floating {
+    position: fixed !important;
+    z-index: 1000 !important;
+    width: 700px;
+    height: 500px;
+    min-width: 340px;
+    min-height: 240px;
+    max-width: 96vw;
+    max-height: 92vh;
+    border: 1px solid var(--cyan) !important;
+    border-radius: 6px;
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.85), 0 0 20px rgba(6, 182, 212, 0.3);
+    resize: both;
+    overflow: hidden;
 }
-.terminal-grid.split-col .terminal-pane:last-child {
-    border-bottom: none;
+
+.terminal-pane.is-floating .terminal-header {
+    background: rgba(6, 182, 212, 0.12);
+    cursor: move;
+}
+
+/* Standalone Window Mode (Popout OS Window) */
+body.standalone-terminal #boot-overlay {
+    display: none !important;
+}
+body.standalone-terminal .win-resize {
+    display: none !important;
+}
+body.standalone-terminal #wis-root {
+    opacity: 1 !important;
+}
+body.standalone-terminal .titlebar .tb-center,
+body.standalone-terminal .titlebar .tb-right > :not(#btn-minimize, #btn-maximize, #btn-close),
+body.standalone-terminal .sidebar,
+body.standalone-terminal .resizer-right,
+body.standalone-terminal .terminal-dock {
+    display: none !important;
+}
+body.standalone-terminal .workspace {
+    width: 100vw !important;
+    height: calc(100vh - 36px) !important;
+}
+body.standalone-terminal .terminal-grid {
+    display: flex !important;
+    background: var(--bg) !important;
+}
+body.standalone-terminal .terminal-pane {
+    flex: 1 1 100% !important;
+    border: none !important;
+}
+body.standalone-terminal .terminal-actions button[action="popout"],
+body.standalone-terminal .terminal-actions button[action="float"],
+body.standalone-terminal .terminal-actions button[action="minimize"] {
+    display: none !important;
 }
 
 .terminal-header {

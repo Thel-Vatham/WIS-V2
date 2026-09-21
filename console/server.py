@@ -1316,7 +1316,7 @@ def create_app(
             name="static-web",
         )
         
-        projects_dir = Path("d:/WIS/Projects")
+        projects_dir = Path(__file__).resolve().parent.parent / "projects"
         projects_dir.mkdir(parents=True, exist_ok=True)
         app.mount(
             "/projects",

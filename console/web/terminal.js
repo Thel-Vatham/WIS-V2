@@ -20,12 +20,16 @@ class TerminalInstance {
         this.thinkingRow = this.element.querySelector(".thinking-row");
         this.thinkingLabel = this.element.querySelector(".thinking-label");
         this.input = this.element.querySelector(".terminal-input");
+        this.btnPopout = this.element.querySelector('[action="popout"]');
+        this.btnFloat = this.element.querySelector('[action="float"]');
         this.btnCancel = this.element.querySelector('[action="cancel"]');
         this.btnMic = this.element.querySelector('[action="mic"]');
         this.btnUpload = this.element.querySelector('[action="upload"]');
         this.btnSend = this.element.querySelector('[action="send"]');
         this.btnMinimize = this.element.querySelector('[action="minimize"]');
         this.btnClose = this.element.querySelector('[action="close"]');
+        this.isFloating = false;
+        this._floatingDragInit = false;
 
         this.title.textContent = sessionId;
 
@@ -207,6 +211,18 @@ class TerminalInstance {
             if (window.triggerGlobalFileUpload) window.triggerGlobalFileUpload();
         });
         
+        if (this.btnPopout) {
+            this.btnPopout.addEventListener("click", () => {
+                this.popoutToWindow();
+            });
+        }
+
+        if (this.btnFloat) {
+            this.btnFloat.addEventListener("click", () => {
+                this.toggleFloat();
+            });
+        }
+
         this.btnMinimize.addEventListener("click", () => {
             this.manager.minimizeToDock(this.sessionId);
         });
@@ -233,6 +249,10 @@ class TerminalInstance {
 
         // Drag events for header
         this.header.addEventListener("dragstart", (e) => {
+            if (this.isFloating) {
+                e.preventDefault();
+                return;
+            }
             e.dataTransfer.setData("text/plain", this.sessionId);
             e.dataTransfer.effectAllowed = "move";
         });
@@ -243,6 +263,90 @@ class TerminalInstance {
         });
         this.input.addEventListener("focus", () => {
             this.manager.setActive(this.sessionId);
+        });
+    }
+
+    popoutToWindow() {
+        const url = new URL(window.location.href);
+        url.searchParams.set("session", this.sessionId);
+        url.searchParams.set("standalone", "1");
+        const win = window.open(
+            url.toString(),
+            "wis_term_" + this.sessionId.replace(/[^a-zA-Z0-9_-]/g, "_"),
+            "width=960,height=650,resizable=yes,scrollbars=no,status=no"
+        );
+        if (win) {
+            this.manager.markDetached(this.sessionId, true);
+        }
+    }
+
+    toggleFloat() {
+        this.isFloating = !this.isFloating;
+        this.element.classList.toggle("is-floating", this.isFloating);
+        if (this.isFloating) {
+            if (this.btnFloat) {
+                this.btnFloat.title = "Anclar nuevamente a la cuadrícula";
+                this.btnFloat.classList.add("accent");
+            }
+            if (!this.element.style.top) {
+                const w = Math.min(720, window.innerWidth - 40);
+                const h = Math.min(520, window.innerHeight - 80);
+                this.element.style.width = w + "px";
+                this.element.style.height = h + "px";
+                this.element.style.top = Math.max(50, (window.innerHeight - h) / 2) + "px";
+                this.element.style.left = Math.max(50, (window.innerWidth - w) / 2) + "px";
+            }
+            this.initFloatingDrag();
+        } else {
+            if (this.btnFloat) {
+                this.btnFloat.title = "Desanclar / Ventana flotante";
+                this.btnFloat.classList.remove("accent");
+            }
+            this.element.style.position = "";
+            this.element.style.top = "";
+            this.element.style.left = "";
+            this.element.style.width = "";
+            this.element.style.height = "";
+        }
+        this.manager.updateGridSplit();
+    }
+
+    initFloatingDrag() {
+        if (this._floatingDragInit) return;
+        this._floatingDragInit = true;
+
+        let isDragging = false;
+        let startX = 0, startY = 0;
+        let initialLeft = 0, initialTop = 0;
+
+        this.header.addEventListener("mousedown", (e) => {
+            if (!this.isFloating || e.target.closest("button") || e.target.closest("input") || e.target.closest("textarea")) return;
+            isDragging = true;
+            startX = e.clientX;
+            startY = e.clientY;
+            const rect = this.element.getBoundingClientRect();
+            initialLeft = rect.left;
+            initialTop = rect.top;
+            e.preventDefault();
+
+            const onMouseMove = (ev) => {
+                if (!isDragging) return;
+                const dx = ev.clientX - startX;
+                const dy = ev.clientY - startY;
+                const newLeft = Math.max(0, Math.min(window.innerWidth - 100, initialLeft + dx));
+                const newTop = Math.max(0, Math.min(window.innerHeight - 50, initialTop + dy));
+                this.element.style.left = newLeft + "px";
+                this.element.style.top = newTop + "px";
+            };
+
+            const onMouseUp = () => {
+                isDragging = false;
+                document.removeEventListener("mousemove", onMouseMove);
+                document.removeEventListener("mouseup", onMouseUp);
+            };
+
+            document.addEventListener("mousemove", onMouseMove);
+            document.addEventListener("mouseup", onMouseUp);
         });
     }
 
@@ -323,21 +427,43 @@ class TerminalInstance {
     }
 }
 
+const LAYOUT_META = {
+    "1x1": { icon: "🗖", label: "1x1" },
+    "1x2": { icon: "❚❚", label: "1x2" },
+    "2x1": { icon: "〓", label: "2x1" },
+    "2x2": { icon: "⊞", label: "2x2" },
+    "3x3": { icon: "▤", label: "3x3" },
+    "4x4": { icon: "▦", label: "4x4" },
+    "auto": { icon: "❖", label: "Auto" },
+};
+
 class TerminalManager {
     constructor() {
         this.instances = new Map();
         this.activeSessionId = "main";
         this.grid = document.getElementById("terminal-grid");
         this.dock = document.getElementById("terminal-dock");
+        this.tabsContainer = document.getElementById("terminal-dock-tabs") || this.dock;
         this.template = document.getElementById("terminal-template");
         
+        this.layoutPickerBtn = document.getElementById("btn-layout-picker");
+        this.layoutDropdown = document.getElementById("layout-dropdown");
+        this.currentLayoutIcon = document.getElementById("current-layout-icon");
+        this.currentLayoutLabel = document.getElementById("current-layout-label");
+        this.currentLayout = localStorage.getItem("wis-terminal-layout") || "2x2";
+
         this.btnNewTerm = document.getElementById("btn-new-term");
-        this.btnNewTerm.addEventListener("click", () => {
-            const name = prompt("Ingrese el nombre del proyecto o terminal:", this.generateId());
-            if (name && name.trim()) {
-                this.createTerminal(name.trim().replace(/\s+/g, '-'));
-            }
-        });
+        if (this.btnNewTerm) {
+            this.btnNewTerm.addEventListener("click", () => {
+                const name = prompt("Ingrese el nombre del proyecto o terminal:", this.generateId());
+                if (name && name.trim()) {
+                    this.createTerminal(name.trim().replace(/\s+/g, '-'));
+                }
+            });
+        }
+
+        this.initLayoutControls();
+        this.applyLayout(this.currentLayout);
         
         // Dock drag drop zone
         this.dock.addEventListener("dragover", e => e.preventDefault());
@@ -356,12 +482,112 @@ class TerminalManager {
         });
     }
 
+    initLayoutControls() {
+        if (this.layoutPickerBtn && this.layoutDropdown) {
+            this.layoutPickerBtn.addEventListener("click", (e) => {
+                e.stopPropagation();
+                this.layoutDropdown.classList.toggle("hidden");
+            });
+
+            document.addEventListener("click", (e) => {
+                if (!e.target.closest("#layout-picker-wrapper")) {
+                    this.layoutDropdown.classList.add("hidden");
+                }
+            });
+
+            this.layoutDropdown.querySelectorAll(".layout-option").forEach(opt => {
+                opt.addEventListener("click", () => {
+                    const layout = opt.dataset.layout;
+                    if (layout) {
+                        this.setLayout(layout);
+                    }
+                    this.layoutDropdown.classList.add("hidden");
+                });
+            });
+        }
+    }
+
+    setLayout(layoutName) {
+        this.currentLayout = layoutName;
+        localStorage.setItem("wis-terminal-layout", layoutName);
+        this.applyLayout(layoutName);
+    }
+
+    applyLayout(layoutName) {
+        if (!this.grid) return;
+        const toRemove = [];
+        this.grid.classList.forEach(cls => {
+            if (cls.startsWith("layout-") || cls === "split-col") toRemove.push(cls);
+        });
+        toRemove.forEach(cls => this.grid.classList.remove(cls));
+
+        this.grid.classList.add(`layout-${layoutName}`);
+
+        if (this.layoutDropdown) {
+            this.layoutDropdown.querySelectorAll(".layout-option").forEach(opt => {
+                opt.classList.toggle("active", opt.dataset.layout === layoutName);
+            });
+        }
+
+        const meta = LAYOUT_META[layoutName] || LAYOUT_META["2x2"];
+        if (this.currentLayoutIcon) this.currentLayoutIcon.textContent = meta.icon;
+        if (this.currentLayoutLabel) this.currentLayoutLabel.textContent = meta.label;
+
+        this.updateGridSplit();
+        this.updateActiveTerminalHighlight();
+    }
+
     setActive(sessionId) {
         if (this.instances.has(sessionId)) {
             this.activeSessionId = sessionId;
+            this.updateActiveTerminalHighlight();
         }
     }
-    
+
+    updateActiveTerminalHighlight() {
+        for (const [sid, inst] of this.instances.entries()) {
+            const isActive = (sid === this.activeSessionId);
+            inst.element.classList.toggle("active-terminal", isActive);
+            const tab = this.tabsContainer.querySelector(`[data-session-id="${sid}"]`);
+            if (tab) tab.classList.toggle("active", isActive);
+        }
+    }
+
+    upsertTab(sessionId) {
+        let tab = this.tabsContainer.querySelector(`[data-session-id="${sessionId}"]`);
+        if (!tab) {
+            tab = document.createElement("div");
+            tab.className = "terminal-tab";
+            tab.dataset.sessionId = sessionId;
+            tab.textContent = sessionId;
+            
+            tab.draggable = true;
+            tab.addEventListener("dragstart", (e) => {
+                e.dataTransfer.setData("text/plain", sessionId);
+            });
+            tab.addEventListener("click", () => {
+                this.setActive(sessionId);
+                this.restoreToGrid(sessionId);
+                const inst = this.instances.get(sessionId);
+                if (inst && inst.input) inst.input.focus();
+            });
+            this.tabsContainer.appendChild(tab);
+        }
+        if (this.activeSessionId === sessionId) {
+            tab.classList.add("active");
+        }
+        return tab;
+    }
+
+    markDetached(sessionId, detached = true) {
+        const tab = this.tabsContainer.querySelector(`[data-session-id="${sessionId}"]`);
+        if (tab) {
+            tab.classList.toggle("detached", detached);
+            tab.textContent = detached ? `${sessionId} ⧉` : sessionId;
+            tab.title = detached ? `${sessionId} (Ventana externa abierta)` : sessionId;
+        }
+    }
+
     saveState() {
         const ids = Array.from(this.instances.keys());
         localStorage.setItem("wis-terminals", JSON.stringify(ids));
@@ -372,9 +598,9 @@ class TerminalManager {
             const saved = JSON.parse(localStorage.getItem("wis-terminals"));
             if (Array.isArray(saved) && saved.length > 0) {
                 for (const sid of saved) {
-                        this.createTerminal(sid === "default" ? "main" : sid);
+                    this.createTerminal(sid === "default" ? "main" : sid);
                 }
-                return true; // Successfully restored
+                return true;
             }
         } catch(e) {}
         return false;
@@ -384,8 +610,6 @@ class TerminalManager {
         try {
             const res = await fetch("/api/sessions", { headers: getAuthHeaders() });
             if (!res.ok) return [];
-            // Project sessions stay in the tree and are opened on demand.
-            // Startup must contain only the transient main console.
             return (await res.json()).sessions || [];
         } catch (e) {
             console.warn("Could not restore persistent terminal sessions:", e);
@@ -404,6 +628,8 @@ class TerminalManager {
         const inst = new TerminalInstance(this, sid, this.template);
         this.instances.set(sid, inst);
         this.grid.appendChild(inst.element);
+        this.upsertTab(sid);
+        this.setActive(sid);
         this.updateGridSplit();
         this.saveState();
         if (window.subscribeWebSocketSession) window.subscribeWebSocketSession(sid);
@@ -419,8 +645,6 @@ class TerminalManager {
             const inst = this.instances.get(this.activeSessionId);
             if (inst.element.parentNode === this.grid) return inst;
         }
-        
-        // Fallback: Return first one in grid, or default
         for (let inst of this.instances.values()) {
             if (inst.element.parentNode === this.grid) {
                 return inst;
@@ -443,10 +667,14 @@ class TerminalManager {
         if (!inst) return;
         inst.element.remove();
         
-        const tab = this.dock.querySelector(`[data-session-id="${sid}"]`);
+        const tab = this.tabsContainer.querySelector(`[data-session-id="${sid}"]`);
         if (tab) tab.remove();
 
         this.instances.delete(sid);
+        if (this.activeSessionId === sid) {
+            const nextKey = this.instances.keys().next().value;
+            if (nextKey) this.setActive(nextKey);
+        }
         this.updateGridSplit();
         this.saveState();
     }
@@ -462,7 +690,7 @@ class TerminalManager {
         inst.element.dataset.sessionId = newSid;
         inst.title.textContent = newSid;
         
-        const tab = this.dock.querySelector(`[data-session-id="${oldSid}"]`);
+        const tab = this.tabsContainer.querySelector(`[data-session-id="${oldSid}"]`);
         if (tab) {
             tab.dataset.sessionId = newSid;
             tab.textContent = newSid;
@@ -488,22 +716,8 @@ class TerminalManager {
         
         if (inst.element.parentNode === this.grid) {
             this.grid.removeChild(inst.element);
-            
-            const tab = document.createElement("div");
-            tab.className = "terminal-tab";
-            tab.dataset.sessionId = sid;
-            tab.textContent = sid;
-            
-            tab.draggable = true;
-            tab.addEventListener("dragstart", (e) => {
-                e.dataTransfer.setData("text/plain", sid);
-            });
-            
-            tab.addEventListener("click", () => {
-                this.restoreToGrid(sid);
-            });
-            
-            this.dock.insertBefore(tab, this.btnNewTerm);
+            const tab = this.upsertTab(sid);
+            tab.classList.add("minimized");
             this.updateGridSplit();
         }
     }
@@ -513,21 +727,20 @@ class TerminalManager {
         if (!inst) return;
         
         if (inst.element.parentNode !== this.grid) {
-            const tab = this.dock.querySelector(`[data-session-id="${sid}"]`);
-            if (tab) tab.remove();
-            
             this.grid.appendChild(inst.element);
+            const tab = this.upsertTab(sid);
+            tab.classList.remove("minimized");
+            this.setActive(sid);
             this.updateGridSplit();
         }
     }
 
     updateGridSplit() {
-        const count = this.grid.children.length;
-        if (count > 2) {
-            this.grid.classList.add("split-col");
-        } else {
-            this.grid.classList.remove("split-col");
-        }
+        if (!this.grid) return;
+        const visibleCount = Array.from(this.grid.children).filter(el => {
+            return el.classList.contains("terminal-pane") && !el.classList.contains("is-floating");
+        }).length;
+        this.grid.dataset.count = visibleCount;
     }
 }
 

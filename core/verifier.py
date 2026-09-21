@@ -173,7 +173,8 @@ class MetacognitiveVerifier:
                 )
                 if not found_in_results and not os.path.exists(fp):
                     # Check relative to common roots
-                    for root in ("d:\\WIS", ".", "Data"):
+                    base_path = str(Path(__file__).resolve().parent.parent)
+                    for root in (base_path, ".", "Data"):
                         candidate = Path(root) / fp
                         if candidate.exists():
                             found_in_results = True

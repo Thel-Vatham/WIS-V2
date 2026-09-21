@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Local SLM Trends & Benchmarks 2026</title>
+<style>
+  :root { --bg:#0f1117; --card:#1a1d27; --accent:#4f8cff; --text:#e6e9ef; --muted:#9aa3b2; --border:#2a2f3d; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:'Segoe UI',system-ui,sans-serif; background:var(--bg); color:var(--text); line-height:1.6; }
+  header { padding:48px 24px; text-align:center; background:linear-gradient(135deg,#1a1d27,#0f1117); border-bottom:1px solid var(--border); }
+  h1 { margin:0 0 8px; font-size:2rem; background:linear-gradient(90deg,#4f8cff,#8b5cf6); -webkit-background-clip:text; background-clip:text; color:transparent; }
+  header p { color:var(--muted); margin:0; }
+  main { max-width:1000px; margin:0 auto; padding:32px 24px 80px; }
+  h2 { margin-top:48px; padding-bottom:8px; border-bottom:2px solid var(--accent); font-size:1.4rem; }
+  h3 { color:var(--accent); margin-top:32px; font-size:1.1rem; }
+  table { width:100%; border-collapse:collapse; margin:16px 0; background:var(--card); border-radius:8px; overflow:hidden; font-size:0.92rem; }
+  th, td { padding:10px 14px; text-align:left; border-bottom:1px solid var(--border); }
+  th { background:#232838; color:var(--accent); font-weight:600; }
+  tr:last-child td { border-bottom:none; }
+  tr:hover td { background:#1f2433; }
+  code { background:#232838; padding:2px 6px; border-radius:4px; color:#8b5cf6; }
+  .card { background:var(--card); border:1px solid var(--border); border-radius:10px; padding:20px; margin:16px 0; }
+  .note { border-left:4px solid #f59e0b; background:#2a2418; padding:12px 16px; border-radius:6px; color:#fcd34d; font-size:0.9rem; }
+  ol li, ul li { margin:6px 0; }
+  footer { text-align:center; color:var(--muted); font-size:0.85rem; padding:24px; border-top:1px solid var(--border); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Local Small Language Models — Trends &amp; Benchmarks 2026</h1>
+  <p>Phi-4 &middot; Llama 3.3 &middot; DeepSeek R1 Distill &middot; VRAM vs Performance</p>
+  <p style="font-size:0.85rem;margin-top:8px;">Report date: 2026-09-21</p>
+</header>
+<main>
+
+<h2>1. Executive Summary</h2>
+<div class="card">
+<p>In 2026 the local-SLM landscape consolidated around <strong>4-bit quantization (Q4_K_M / GGUF)</strong> as the practical default for consumer hardware. The key shift is not raw parameter count but <strong>efficiency per gigabyte of VRAM</strong>:</p>
+<ul>
+  <li><strong>Phi-4 (14B)</strong> — strongest reasoning-per-VRAM in the 12–16 GB class.</li>
+  <li><strong>Llama 3.3 70B</strong> — the "big local" reference, but needs 40–48 GB VRAM at Q4.</li>
+  <li><strong>DeepSeek R1 Distill</strong> — dominates chain-of-thought reasoning at small sizes, with longer outputs.</li>
+  <li><strong>Qwen3 / Gemma 3–4</strong> — main challengers in the sub-8B edge tier.</li>
+</ul>
+</div>
+
+<h2>2. VRAM vs Performance</h2>
+
+<h3>2.1 Phi-4 (14B)</h3>
+<table>
+<tr><th>Quantization</th><th>Approx. VRAM</th><th>Quality Retention</th><th>Notes</th></tr>
+<tr><td>FP16</td><td>~28–32 GB</td><td>100% (baseline)</td><td>A100 / 2× consumer GPUs</td></tr>
+<tr><td>Q8_0</td><td>~16 GB</td><td>~99%</td><td>Fits 16 GB cards</td></tr>
+<tr><td><strong>Q4_K_M</strong></td><td><strong>~9–10 GB</strong></td><td><strong>~97%</strong></td><td><strong>Sweet spot — 12 GB cards</strong></td></tr>
+<tr><td>Q4_0</td><td>~8.5 GB</td><td>~95%</td><td>Fastest Q4 variant</td></tr>
+</table>
+
+<h3>2.2 Llama 3.3 70B</h3>
+<table>
+<tr><th>Quantization</th><th>Approx. VRAM</th><th>Quality Retention</th><th>Notes</th></tr>
+<tr><td>FP16</td><td>~140 GB</td><td>100%</td><td>Multi-GPU only</td></tr>
+<tr><td>Q8_0</td><td>~70 GB</td><td>~99%</td><td>2× 48 GB GPUs</td></tr>
+<tr><td><strong>Q4_K_M</strong></td><td><strong>~40–43 GB</strong></td><td><strong>~97%</strong></td><td>Dual 24 GB / 48 GB workstation</td></tr>
+<tr><td>Q4_0</td><td>~38 GB</td><td>~95%</td><td>Cheapest viable 70B</td></tr>
+</table>
+
+<h3>2.3 DeepSeek R1 Distill Family</h3>
+<table>
+<tr><th>Model</th><th>Quantization</th><th>Approx. VRAM</th><th>Reasoning Profile</th></tr>
+<tr><td>R1-Distill-Qwen-7B</td><td>Q4_K_M</td><td>~5–6 GB</td><td>Fast CoT, fits 8 GB cards</td></tr>
+<tr><td>R1-Distill-Llama-8B</td><td>Q4_K_M</td><td>~6 GB</td><td>Strong math for size</td></tr>
+<tr><td>R1-Distill-Qwen-14B</td><td>Q4_K_M</td><td>~9–10 GB</td><td>Best reasoning/VRAM ratio</td></tr>
+<tr><td>R1-Distill-Qwen-32B</td><td>Q4_K_M</td><td>~19–20 GB</td><td>Near-70B reasoning, 24 GB card</td></tr>
+<tr><td>R1-Distill-Llama-70B</td><td>Q4_K_M</td><td>~40–43 GB</td><td>Full R1 reasoning locally</td></tr>
+</table>
+
+<h3>2.4 Cross-Model VRAM Efficiency Snapshot</h3>
+<table>
+<tr><th>Model</th><th>Params</th><th>Q4 VRAM</th><th>Tier</th><th>Best For</th></tr>
+<tr><td>Phi-4</td><td>14B</td><td>~9–10 GB</td><td>12 GB GPU</td><td>Reasoning, code, math</td></tr>
+<tr><td>Llama 3.3</td><td>70B</td><td>~40–43 GB</td><td>Workstation</td><td>General + long context</td></tr>
+<tr><td>DeepSeek R1-Distill-Qwen</td><td>14B</td><td>~9–10 GB</td><td>12 GB GPU</td><td>Chain-of-thought reasoning</td></tr>
+<tr><td>DeepSeek R1-Distill-Qwen</td><td>32B</td><td>~19–20 GB</td><td>24 GB GPU</td><td>Deep reasoning</td></tr>
+<tr><td>Qwen3</td><td>4B</td><td>~3 GB</td><td>6–8 GB GPU</td><td>Edge / on-device</td></tr>
+<tr><td>Gemma 3</td><td>4B</td><td>~3 GB</td><td>6–8 GB GPU</td><td>Edge / multilingual</td></tr>
+</table>
+
+<h2>3. Key 2026 Trends</h2>
+<ol>
+  <li><strong>Q4 is the new default</strong> — ~3% quality loss vs. 4× VRAM savings.</li>
+  <li><strong>Reasoning models changed the metric</strong> — "useful tokens/sec" (accounting for CoT overhead) now matters more than raw tokens/sec.</li>
+  <li><strong>The 12 GB tier is the sweet spot</strong> — Phi-4 14B and DeepSeek-14B both land there.</li>
+  <li><strong>70B is workstation-only</strong> — still not consumer-viable at usable quality.</li>
+  <li><strong>Edge models (3–4B) matured</strong> — Qwen3-4B and Gemma 3-4B now handle real assistant tasks.</li>
+  <li><strong>Gemma 4 (Apache 2.0)</strong> — Google's license switch removed a major adoption barrier.</li>
+</ol>
+
+<h2>4. Hardware Recommendations</h2>
+<table>
+<tr><th>Budget / GPU</th><th>Best Model Choice</th></tr>
+<tr><td>8 GB VRAM</td><td>DeepSeek R1-Distill-7B/8B (Q4)</td></tr>
+<tr><td>12 GB VRAM</td><td><strong>Phi-4 14B (Q4)</strong> or DeepSeek-R1-14B</td></tr>
+<tr><td>16 GB VRAM</td><td>Phi-4 (Q8) or DeepSeek-R1-14B (Q8)</td></tr>
+<tr><td>24 GB VRAM</td><td>DeepSeek R1-Distill-32B (Q4)</td></tr>
+<tr><td>48 GB+ / dual GPU</td><td>Llama 3.3 70B (Q4)</td></tr>
+</table>
+
+<h2>5. Methodology &amp; Sources</h2>
+<div class="card">
+<ul>
+  <li>localai.computer — Microsoft Phi-4 VRAM/GPU requirements</li>
+  <li>macmyths.com — Phi-4 local performance review (2026)</li>
+  <li>llmhardware.io — Llama 3.1/3.3 hardware requirements</li>
+  <li>insiderllm.com — Llama 3 full size guide (2026)</li>
+  <li>tinyweights.dev — Best Small Language Models 2026</li>
+  <li>awesomeagents.ai — Small Language Model Leaderboard (&lt;10B)</li>
+  <li>aiportalx.com — Best Small &amp; Edge LLMs 2026</li>
+  <li>Wikipedia — List of large language models (2026)</li>
+</ul>
+</div>
+<div class="note">
+<strong>Note:</strong> VRAM figures are approximate and vary with context length, KV-cache size, and runtime (llama.cpp / Ollama / vLLM). Treat as planning estimates, not exact measurements.
+</div>
+
+</main>
+<footer>Generated by WIS · Local SLM Research Report · 2026-09-21</footer>
+</body>
+</html>

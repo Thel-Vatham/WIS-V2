@@ -458,13 +458,14 @@ class ActionPipeline:
             elif cmd == "/new":
                 if hasattr(self.abilities, "execute"):
                     import os
-                    proj_path = os.path.join(r"d:\WIS\Projects", args)
+                    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                    proj_path = os.path.join(base_dir, "projects", args)
                     os.makedirs(proj_path, exist_ok=True)
                 resp_text = f"Created project directory: {proj_path}. Open it from the Projects tree to start working."
 
             elif cmd == "/projects":
                 from pathlib import Path
-                projects_dir = Path(r"D:\WIS\Projects")
+                projects_dir = Path(__file__).resolve().parent.parent / "projects"
                 if not projects_dir.is_dir():
                     resp_text = f"Projects directory not found: {projects_dir}"
                 else:
@@ -492,7 +493,8 @@ class ActionPipeline:
                 elif not project_name or project_name in (".", "..") or os.path.basename(project_name) != project_name:
                     resp_text = "Invalid project name."
                 else:
-                    proj_path = os.path.join(r"d:\WIS\Projects", project_name)
+                    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                    proj_path = os.path.join(base_dir, "projects", project_name)
                     if not os.path.isdir(proj_path):
                         resp_text = f"Project not found: {project_name}"
                     else:
@@ -719,7 +721,8 @@ class ActionPipeline:
             elif cmd == "/logs":
                 import os
                 try:
-                    log_file = r"d:\WIS\logs\wis.log"
+                    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                    log_file = os.path.join(base_dir, "logs", "wis.log")
                     if os.path.exists(log_file):
                         with open(log_file, "r", encoding="utf-8") as f:
                             lines = f.readlines()[-100:]
@@ -1277,12 +1280,6 @@ class ActionPipeline:
             final_ok = ok
 
             if duplicate_only:
-                # El LLM repitio una accion ya ejecutada: se detiene el bucle (no
-                # tiene sentido repetir efectos). Antes se marcaba success=True
-                # creyendo su texto, y asi el turno terminaba en una PROMESA
-                # ("Let me kill them by PID") con exito falso. Ahora el exito
-                # exige evidencia verificada, y el guard final convierte
-                # cualquier promesa en un informe honesto.
                 text_response = (
                     text_response.strip()
                     or "The requested actions were already completed; no duplicate action was executed."
@@ -1373,11 +1370,10 @@ class ActionPipeline:
             event_bus.emit("pipeline.empty_response_fallback", { "session_id": session_id,"text": text[:80]})
 
         # ── Guard anti-promesa ───────────────────────────────────────────────
-        # El turno puede cerrarse (llamada duplicada, max_steps, cancelacion) con
-        # el texto de una PROMESA en vez de un resultado: "Let me kill them
-        # directly by PID using taskkill". Eso es exactamente lo que el usuario
-        # vivia como "dice que va a verificar y se queda parado". La promesa
-        # nunca se devuelve como resultado: se convierte en informe honesto.
+        # El turno puede cerrarse con texto de promesa ("I'll examine...", "Let me verify...").
+        # Solo se considera estancamiento si NO se verificó ninguna acción real durante el turno.
+        # Si ya se completaron acciones verificadas (crear archivos, ejecutar comandos), no se
+        # invalida el trabajo realizado.
         if _announces_future_action(text_response):
             ok_actions = sorted({
                 str(t.get("call", {}).get("action") or t.get("call", {}).get("name") or "?")
@@ -1387,6 +1383,7 @@ class ActionPipeline:
                 str(t.get("call", {}).get("action") or t.get("call", {}).get("name") or "?")
                 for t in trace if not t.get("verified")
             })
+
             logger.warning(
                 "pipeline: turno cerrado en promesa para '%s' (pasos=%s, ok=%s, fallos=%s)",
                 text[:60], step_count, ok_actions, failed_actions,
