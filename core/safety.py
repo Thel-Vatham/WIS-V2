@@ -212,7 +212,10 @@ class FailureClassifier:
     @staticmethod
     def classify(error_text: str) -> str:
         text = str(error_text or "").lower()
-        if any(h in text for h in ("blocked", "critical_danger", "dangerous", "safety")):
+        if any(h in text for h in (
+            "blocked", "bloqueado", "autoproteccion", "self_protection",
+            "critical_danger", "dangerous", "safety",
+        )):
             return "SAFETY_BLOCK"
         if any(h in text for h in ("timeout", "timed out", "timedout")):
             return "TIMEOUT"
@@ -220,4 +223,25 @@ class FailureClassifier:
             return "LLM_FORMAT_ERROR"
         if any(h in text for h in ("connection", "network", "http 5", "http 4")):
             return "NETWORK_ERROR"
-        return "HARDWARE_ERROR"
+        # Defecto en el PROPIO codigo (API equivocada, modulo ausente, excepcion
+        # silenciada). Antes todo esto caia en el catch-all HARDWARE_ERROR, lo
+        # que le decia al agente "falla el mundo exterior"; como su prompt de
+        # reparacion solo le permitia elegir otra herramienta, WIS nunca miraba
+        # ni arreglaba su propio codigo (incidente 2026-09-15: vision.detect_objects
+        # fallaba por OpenCV 5 y WIS se limitaba a rodear el fallo).
+        if any(h in text for h in (
+            "no attribute", "has no attribute",
+            "modulenotfounderror", "no module named", "importerror", "cannot import name", "cannot import",
+            "traceback", "notimplementederror", "not implemented",
+            "typeerror", "valueerror", "keyerror", "indexerror", "nameerror",
+            "ya no incluye", "has been removed",
+            "no disponible", "no esta disponible",
+        )):
+            return "SOFTWARE_DEFECT"
+        # Fallo genuino de hardware/dispositivo.
+        if any(h in text for h in (
+            "device", "dispositivo", "camara", "camera", "webcam",
+            "serial", "com", "usb", "sensor", "gpio",
+        )):
+            return "HARDWARE_ERROR"
+        return "UNKNOWN_ERROR"

@@ -85,6 +85,59 @@ def _announces_future_action(text: str) -> bool:
     return any(re.search(pat, sample, re.IGNORECASE) for pat in _PROMISE_SIGNALS)
 
 
+# Acciones SIN efectos secundarios: repetirlas es inocuo y a menudo necesario
+# (p. ej. volver a listar un directorio despues de lanzar algo). El filtro
+# anti-duplicados existe para no repetir EFECTOS, no para bloquear lecturas.
+# Cuando se aplicaba a una lectura, la llamada se descartaba en silencio y el
+# turno terminaba sin ejecutar el paso anunciado: incidente 2026-09-15 20:57,
+# "Run the main program" acabo en [AVISO] porque un code_list_dir repetido
+# nunca llego a ejecutarse y el bucle se corto por "duplicado".
+_READ_ONLY_ACTION_RE = re.compile(
+    r"^(?:code_|code_tools_)?"
+    r"(?:list|get|view|read|check|describe|grep|find|search|inspect|probe|"
+    r"info|status|capture|detect|analyze|verify|health)",
+    re.IGNORECASE,
+)
+
+
+def _is_repeatable_call(call: Dict[str, Any]) -> bool:
+    """True si la llamada es de solo lectura, por tanto segura de repetir."""
+    if not isinstance(call, dict):
+        return False
+    action = str(call.get("action") or call.get("name") or "").strip()
+    return bool(action) and bool(_READ_ONLY_ACTION_RE.match(action))
+
+
+def _build_repair_prompt(text: str, step: int, category: str, error_desc: str) -> str:
+    """Prompt de auto-reparacion, escalado segun la naturaleza del fallo.
+
+    Un defecto de codigo no se arregla reintentando otra herramienta. Antes TODO
+    fallo recibia la misma instruccion ("elige otra tool y otros parametros"),
+    asi que WIS jamas reparaba su propio codigo: solo lo rodeaba. Aqui se le da
+    autorizacion explicita para leer y parchear la fuente cuando corresponde.
+    """
+    if category == "SOFTWARE_DEFECT":
+        return (
+            f"{text}\n\n"
+            f"[AUTO-REPAIR — Step {step}]: Previous action failed ({category}): {error_desc}.\n"
+            f"This is a DEFECT IN THE CODE, not a hardware fault and not a bad\n"
+            f"parameter: retrying the same tool with different arguments will NOT fix it.\n"
+            f"You are authorized and expected to repair the source code. Do it:\n"
+            f"  1. Read the failing module with code_tools.code_grep / code_tools.code_view_file.\n"
+            f"  2. Name the EXACT defect (wrong/incompatible API, stale path,\n"
+            f"     swallowed exception, misleading error message...).\n"
+            f"  3. Apply the minimal fix with code_tools.code_replace_content.\n"
+            f"  4. Re-run the failed action to PROVE the fix works.\n"
+            f"Do not invent files, and do not claim success without re-running."
+        )
+    return (
+        f"{text}\n\n"
+        f"[AUTO-REPAIR — Step {step}]: Previous action failed ({category}): {error_desc}.\n"
+        f"Please consult the ## AVAILABLE TOOLS AND SCHEMAS section in the system prompt to find the correct, canonical tool and action name, along with their exact parameter schemas.\n"
+        f"Generate alternative tool calls or parameters."
+    )
+
+
 @dataclass
 class TurnContext:
     """Estado efímero y aislado de una sola ejecución cognitiva."""
@@ -1193,12 +1246,9 @@ class ActionPipeline:
                     "category": category, "error": error_desc, "text": text[:80]
                 })
 
-                repair_prompt = (
-                    f"{text}\n\n"
-                    f"[AUTO-REPAIR — Step {step}]: Previous action failed ({category}): {error_desc}.\n"
-                    f"Please consult the ## AVAILABLE TOOLS AND SCHEMAS section in the system prompt to find the correct, canonical tool and action name, along with their exact parameter schemas.\n"
-                    f"Generate alternative tool calls or parameters."
-                )
+                # El prompt escala a reparacion de codigo si el fallo es un
+                # defecto de software; si no, pide otra tool/parametros.
+                repair_prompt = _build_repair_prompt(text, step, category, error_desc)
                 try:
                     repair_thought = await self.reasoning.think(active_context_str + repair_prompt, sensor_data=sensor_data, tools=tools, session_id=session_id)
                     repair_calls = repair_thought.get("calls", []) or []
@@ -1477,7 +1527,10 @@ class ActionPipeline:
                 continue
 
             fingerprint = self._call_fingerprint(call)
-            if fingerprint in seen:
+            # Las lecturas se pueden repetir sin riesgo; solo se deduplican las
+            # acciones con efectos secundarios.
+            repeatable = _is_repeatable_call(call)
+            if not repeatable and fingerprint in seen:
                 result = {
                     "ok": True,
                     "name": call.get("skill") or call.get("name") or call.get("action") or "unknown",
@@ -1490,7 +1543,7 @@ class ActionPipeline:
                     require_approval=self.safety.needs_approval(call),
                     session_id=session_id,
                 )
-                if result.get("ok", False):
+                if result.get("ok", False) and not repeatable:
                     seen.add(fingerprint)
             results.append(result)
             if not result.get("ok", False):

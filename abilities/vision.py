@@ -45,6 +45,9 @@ class VisionAbility(Ability):
         # practica solo supera el umbral con 'person'.
         self._yolo_net = None
         self._yolo_names: list = []
+        # Motivo real del ultimo fallo de carga (archivos ausentes vs. OpenCV
+        # sin importador Darknet): evita mensajes enganosos al agente.
+        self._yolo_error: str = ""
 
     # ------------------------------------------------------------------ #
     # Metadatos requeridos por Ability
@@ -407,8 +410,8 @@ class VisionAbility(Ability):
                 "success": False,
                 "data": {"count": 0, "objects": []},
                 "message": (
-                    "Modelo de deteccion multi-objeto no disponible "
-                    "(faltan models/detection/yolov4-tiny.cfg, .weights o coco.names)."
+                    "Deteccion multi-objeto no disponible: "
+                    + (self._yolo_error or "el modelo no se pudo cargar")
                 ),
             }
 
@@ -605,7 +608,13 @@ class VisionAbility(Ability):
         return os.path.join(root, "object_detector")
 
     def _load_yolo_sync(self, cv2_module):
-        """Carga YOLOv4-tiny (COCO). Devuelve (net, nombres) o (None, [])."""
+        """Carga YOLOv4-tiny (COCO). Devuelve (net, nombres) o (None, []).
+
+        Deja en `self._yolo_error` el motivo REAL del fallo. No es lo mismo que
+        falten los archivos que que el build de OpenCV ya no sepa leer Darknet;
+        antes ambos casos devolvian el mismo mensaje ("faltan los archivos") y
+        el agente se ponia a buscar ficheros que ya estaban en su sitio.
+        """
         if self._yolo_net is not None and self._yolo_names:
             return self._yolo_net, self._yolo_names
 
@@ -613,17 +622,43 @@ class VisionAbility(Ability):
         cfg = os.path.join(base, "yolov4-tiny.cfg")
         weights = os.path.join(base, "yolov4-tiny.weights")
         names_path = os.path.join(base, "coco.names")
-        if not all(os.path.isfile(p) for p in (cfg, weights, names_path)):
+        missing = [
+            os.path.basename(p) for p in (cfg, weights, names_path)
+            if not os.path.isfile(p)
+        ]
+        if missing:
+            self._yolo_error = (
+                f"faltan archivos del modelo en {base}: " + ", ".join(missing)
+            )
             return None, []
+
         try:
             with open(names_path, "r", encoding="utf-8") as fh:
                 names = [line.strip() for line in fh if line.strip()]
+        except OSError as exc:
+            self._yolo_error = f"no se pudo leer {names_path}: {exc}"
+            return None, []
+
+        # OpenCV >= 5 elimino el importador Darknet: los assets estan, pero el
+        # build no puede leerlos. Distinguirlo evita reparaciones inutiles.
+        if not hasattr(cv2_module.dnn, "readNetFromDarknet"):
+            self._yolo_error = (
+                f"el modelo esta en {base}, pero OpenCV "
+                f"{getattr(cv2_module, '__version__', '?')} ya no incluye el "
+                "importador Darknet (readNetFromDarknet). Requiere OpenCV 4.x "
+                "o un modelo convertido a ONNX."
+            )
+            return None, []
+
+        try:
             net = cv2_module.dnn.readNetFromDarknet(cfg, weights)
             net.setPreferableBackend(cv2_module.dnn.DNN_BACKEND_OPENCV)
             net.setPreferableTarget(cv2_module.dnn.DNN_TARGET_CPU)
-        except Exception:
+        except Exception as exc:
+            self._yolo_error = f"OpenCV no pudo cargar el modelo Darknet {cfg}: {exc}"
             return None, []
 
+        self._yolo_error = ""
         self._yolo_net = net
         self._yolo_names = names
         return net, names
