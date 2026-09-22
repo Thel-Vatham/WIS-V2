@@ -1,6 +1,6 @@
 # 🔌 WIS v3.0 — Motor de Hardware y Telemetría
 
-WIS incorpora una capa de abstracción de hardware diseñada para interactuar de forma segura y en tiempo real con microcontroladores, sensores IoT y periféricos industriales. A diferencia de un chatbot convencional, WIS posee memoria topológica de hardware y verificación empírica de estados físicos.
+WIS incorpora una capa de abstracción de hardware diseñada para interactuar de forma segura y en tiempo real con microcontroladores, sensores IoT, plataformas robóticas humanoides (NAO) y vehículos aéreos no tripulados (drones). A diferencia de un chatbot convencional, WIS posee memoria topológica de hardware, verificación empírica de estados físicos y lazos sensoriales desacoplados.
 
 ---
 
@@ -10,11 +10,11 @@ Ubicada en `Data/wis_hardware.db`, gestiona tres tablas relacionales primarias:
 
 ### A. `devices` (El Device Graph)
 Registra cada dispositivo físico conectado o conocido en la topología:
-- `id`: Identificador único (ej. `esp32_gateway_01`).
-- `name`: Nombre descriptivo (ej. `ESP32 DevKit v1`).
-- `device_type`: MCU, SENSOR, ACTUATOR, RELAY, CAMERA, POWER_METER.
-- `interface`: `serial`, `mqtt`, `i2c`, `spi`, `ble`.
-- `connection_info`: JSON con puerto (`COM4`), baudrate (`115200`), topic MQTT, dirección I2C.
+- `id`: Identificador único (ej. `esp32_gateway_01`, `nao_robot_v5`).
+- `name`: Nombre descriptivo (ej. `ESP32 DevKit v1`, `NAO Humanoid Primary`).
+- `device_type`: MCU, SENSOR, ACTUATOR, RELAY, CAMERA, POWER_METER, ROBOT_HUMANOID, DRONE.
+- `interface`: `serial`, `mqtt`, `i2c`, `spi`, `ble`, `tcp_socket`, `mavlink`.
+- `connection_info`: JSON con puerto (`COM4`), baudrate (`115200`), topic MQTT, IP/Puerto TCP o enlace de telemetría.
 - `status`: `connected`, `disconnected`, `error`.
 - `last_seen`: Timestamp UNIX de última telemetría válida.
 
@@ -36,7 +36,7 @@ Registra secuencias de comandos pre-probadas y optimizadas:
 
 ## 2. Comunicaciones Serie (UART / RS232)
 
-Implementado en [abilities/serial_comm.py](file:///d:/WIS/abilities/serial_comm.py):
+Implementado en `abilities/serial_comm.py`:
 
 ### Arquitectura de Buffer y Verificación
 1. **Detección Automática:** Escanea el bus USB buscando descriptores USB-UART (CH340, CP2102, FTDI).
@@ -47,7 +47,7 @@ Implementado en [abilities/serial_comm.py](file:///d:/WIS/abilities/serial_comm.
 
 ## 3. Arquitectura MQTT e Ingesta de Telemetría
 
-Implementado en [abilities/mqtt_comm.py](file:///d:/WIS/abilities/mqtt_comm.py) y [core/telemetry.py](file:///d:/WIS/core/telemetry.py):
+Implementado en `abilities/mqtt_comm.py` y `core/telemetry.py`:
 
 ### Estructura de Tópicos
 - **Telemetría de Sensores:** `wis/telemetry/{device_id}/{metric}` (ej. `wis/telemetry/esp32_01/temperature`).
@@ -72,7 +72,7 @@ Este evento viaja por el `EventBus` y activa directamente el método `handle_aut
 
 ## 4. Toolchains de Firmware (`toolchain`)
 
-Implementado en [abilities/toolchain.py](file:///d:/WIS/abilities/toolchain.py):
+Implementado en `abilities/toolchain.py`:
 - **PlatformIO (`pio`):** Compilación desatendida mediante CLI de proyectos PlatformIO (`pio run`).
 - **Arduino CLI (`arduino-cli`):** Compilación y subida a placas clásicas (Arduino Uno, Mega, Nano).
 - **ESPTool (`esptool.py`):** Flasheo a bajo nivel de microcontroladores Espressif (ESP8266, ESP32-S2/S3/C3), lectura de MAC, borrado de flash (`erase_flash`) y lectura de tablas de particiones.
@@ -86,7 +86,48 @@ WIS inspecciona el sistema de archivos tras la compilación:
 
 ## 5. Servidor de Simulación de Hardware (`mock_server.py`)
 
-Para entornos de desarrollo o CI/CD donde no hay microcontroladores conectados físicamente, WIS incluye un simulador integral en [mock_server.py](file:///d:/WIS/mock_server.py):
+Para entornos de desarrollo o CI/CD donde no hay microcontroladores conectados físicamente, WIS incluye un simulador integral en `mock_server.py`:
 - Crea puertos serie virtuales emulados con respuestas programadas (`OK`, `READY`, lecturas de temperatura senoidales).
 - Emula un broker MQTT local con simulación de pérdida de paquetes y latencia de red.
 - Permite validar la suite completa de pruebas de hardware sin riesgo de dañar placas reales.
+
+---
+
+## 6. Robótica Física Avanzada y Percepción Sensorial en Tiempo Real (NAO & Drones)
+
+WIS implementa una arquitectura híbrida de dos niveles para interactuar con sistemas ciber-físicos complejos:
+
+```mermaid
+graph TD
+    subgraph Plano Cognitivo ["Plano Cognitivo (WIS Core)"]
+        LLM["Razonamiento de Alto Nivel / LLM"]
+        CRON["Cron Autónomo"]
+        DEV["DevAgent / Meta-Programador"]
+    end
+
+    subgraph Plano Determinístico ["Plano Determinístico de Tiempo Real (Control Loops)"]
+        VAD_LOOP["Hilo VAD / Audio Continuo (RMS Threshold)"]
+        VISION_LOOP["Hilo OpenCV / Tracking Visual (30 FPS)"]
+        PID_LOOP["Control de Estabilidad / Cinemática PID"]
+    end
+
+    subgraph Hardware Físico ["Hardware Físico / Actuadores"]
+        NAO["Robot Humanoide NAO (Motores, TTS, Sensores táctiles)"]
+        DRONE["Dron Autónomo (Controladora de Vuelo MAVLink/Betaflight)"]
+    end
+
+    Plano Cognitivo -->|Misiones, Metas y Parches de Código| Plano Determinístico
+    Plano Determinístico -->|Eventos Filtrados y Disparadores| Plano Cognitivo
+    Plano Determinístico <==>|Telemetría y Control Continuo (ms)| Hardware Físico
+```
+
+### A. Robot Humanoide NAO (`console/nao_api.py` y `projects/nao/`)
+- **Control Cinemático Interpolado:** Comandos de ángulos articulares para cuello, brazos y postura con restricciones de seguridad de ángulo y velocidad máxima.
+- **Bucle Sensorial Continuo (VAD):** Hilo en segundo plano que mide la energía acústica ambiental sin bloquear el servidor. Al detectar habla, despacha el evento cognitivo al pipeline para que el robot responda con naturalidad.
+- **Comportamientos Autónomos:** Integración pedagógica y de interacción en `projects/nao/kindergarten_teacher.py`.
+
+### B. Control de Vehículos Autónomos y Drones (Arquitectura de Misión Crítica)
+- **Principio de Desacoplamiento de Seguridad:** El LLM **nunca** calcula loops PID a 100 Hz directamente (lo cual sería peligroso debido a la latencia de inferencia).
+- En su lugar, WIS escribe, compila y despliega controladores de visión determinísticos en Python/C++ (ej. rastreo de objetos por color o detección de rostros con OpenCV a 30 FPS).
+- El hilo determinístico envía ráfagas de control de actitud (`roll, pitch, yaw, throttle`) vía protocolo MAVLink o UART serie.
+- **Mecanismo Fail-Safe:** Si WIS pierde la comunicación con el bucle o el sensor por más de 500 ms, el firmware del dron activa automáticamente la rutina de retorno a casa (RTH) o aterrizaje de emergencia programado.

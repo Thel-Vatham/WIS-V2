@@ -204,6 +204,7 @@ class ActionPipeline:
 
         # Swarm Telepathy Bus: Inyección asíncrona de conocimiento
         event_bus.subscribe("swarm.broadcast", self._on_telepathy)
+        event_bus.subscribe("pipeline.autonomous_trigger", self._on_autonomous_trigger)
 
         self._reflex_table: Dict[str, str] = {
             "hi": "Hello.",
@@ -400,6 +401,21 @@ class ActionPipeline:
             self.reasoning.memory.add_system_message(telepathy_text)
             logger.info("Pipeline asimiló conocimiento telepático: %s", topic)
 
+    def _on_autonomous_trigger(self, payload: Dict[str, Any]) -> None:
+        """
+        Dispara un bucle cognitivo autónomo sin interacción directa del usuario en la web.
+        (Ej: Cron, Tareas en background, Agente de Monitoreo).
+        """
+        session_id = payload.get("session_id", "background_agent")
+        prompt = payload.get("prompt", "")
+        if prompt:
+            logger.info("Pipeline despertado por trigger autónomo: %s", session_id)
+            try:
+                loop = asyncio.get_running_loop()
+                loop.create_task(self.process(prompt, session_id=session_id))
+            except RuntimeError:
+                pass # Se requeriría manejo especial si se llama sin event_loop
+
     # ---- Main Process -----------------------------------------------------
 
     async def process(
@@ -578,18 +594,23 @@ class ActionPipeline:
                     res = await self.abilities.execute("persistent_terminal", "terminal_list", {})
                     # Find cwd of the current session
                     terminals = res.get("terminals", [])
-                    cwd = "d:/WIS/Projects"
+                    default_cwd = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "projects")
+                    cwd = default_cwd
+                    project_cwd = os.path.join(default_cwd, session_id)
+                    if os.path.exists(project_cwd) and os.path.isdir(project_cwd):
+                        cwd = project_cwd
                     for t in terminals:
                         if t.startswith(session_id):
                             parts = t.split("(")
                             if len(parts) > 1:
                                 cwd = parts[1].replace(")", "").strip()
                             break
-                    if os.path.exists(cwd):
-                        files = os.listdir(cwd)
-                        resp_text = f"Directory List for {cwd}:\n" + "\n".join(files)
+                    target_dir = os.path.join(cwd, args.strip()) if args and args.strip() else cwd
+                    if os.path.exists(target_dir) and os.path.isdir(target_dir):
+                        files = os.listdir(target_dir)
+                        resp_text = f"Directory List for {target_dir}:\n" + "\n".join(files)
                     else:
-                        resp_text = f"Path {cwd} not found."
+                        resp_text = f"Directory {target_dir} not found."
                 except Exception as e:
                     resp_text = f"List failed: {e}"
                     
@@ -598,10 +619,16 @@ class ActionPipeline:
                 try:
                     # Get cwd
                     res = await self.abilities.execute("persistent_terminal", "terminal_list", {})
-                    cwd = "d:/WIS/Projects"
+                    default_cwd = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "projects")
+                    cwd = default_cwd
+                    project_cwd = os.path.join(default_cwd, session_id)
+                    if os.path.exists(project_cwd) and os.path.isdir(project_cwd):
+                        cwd = project_cwd
                     for t in res.get("terminals", []):
-                        if t.startswith(session_id) and "(" in t:
-                            cwd = t.split("(")[1].replace(")", "").strip()
+                        if t.startswith(session_id):
+                            parts = t.split("(")
+                            if len(parts) > 1:
+                                cwd = parts[1].replace(")", "").strip()
                             break
                             
                     p = subprocess.run(args, shell=True, capture_output=True, text=True, cwd=cwd)
@@ -618,7 +645,8 @@ class ActionPipeline:
                 import os
                 try:
                     res = await self.abilities.execute("persistent_terminal", "terminal_list", {})
-                    cwd = "d:/WIS/Projects"
+                    default_cwd = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "projects")
+                    cwd = default_cwd
                     for t in res.get("terminals", []):
                         if t.startswith(session_id) and "(" in t:
                             cwd = t.split("(")[1].replace(")", "").strip()
@@ -627,7 +655,7 @@ class ActionPipeline:
                     full_path = os.path.join(cwd, args)
                     if os.path.exists(full_path):
                         # Map absolute path to relative /projects/ path
-                        rel_path = os.path.relpath(full_path, "d:/WIS/Projects").replace("\\\\", "/")
+                        rel_path = os.path.relpath(full_path, default_cwd).replace("\\\\", "/")
                         event_bus.emit("ui.open_file", {"path": rel_path})
                         resp_text = f"Opening {rel_path} in new tab..."
                     else:
@@ -649,7 +677,8 @@ class ActionPipeline:
                 import os
                 try:
                     res = await self.abilities.execute("persistent_terminal", "terminal_list", {})
-                    cwd = "d:/WIS/Projects"
+                    default_cwd = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "projects")
+                    cwd = default_cwd
                     for t in res.get("terminals", []):
                         if t.startswith(session_id) and "(" in t:
                             cwd = t.split("(")[1].replace(")", "").strip()
@@ -704,7 +733,8 @@ class ActionPipeline:
                 import subprocess
                 try:
                     res = await self.abilities.execute("persistent_terminal", "terminal_list", {})
-                    cwd = "d:/WIS/Projects"
+                    default_cwd = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "projects")
+                    cwd = default_cwd
                     for t in res.get("terminals", []):
                         if t.startswith(session_id) and "(" in t:
                             cwd = t.split("(")[1].replace(")", "").strip()

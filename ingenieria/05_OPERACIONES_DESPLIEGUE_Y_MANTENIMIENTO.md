@@ -4,7 +4,7 @@ Este documento constituye el **Manual de Operaciones y Runbook** de WIS v3.0 par
 
 ---
 
-## 1. Despliegue Rápido Automatizado ([instalar.bat](file:///d:/WIS/instalar.bat))
+## 1. Despliegue Rápido Automatizado (`instalar.bat`)
 
 El repositorio incluye un script de instalación desatendido de 8 pasos que no requiere intervención humana:
 
@@ -15,8 +15,8 @@ instalar.bat
 
 ### ¿Qué ejecuta `instalar.bat` automáticamente?
 1. **Visual C++ Redistributable 2022:** Comprueba en el registro de Windows si está presente; si falta, descarga silenciosamente el instalador oficial de Microsoft y lo aplica sin reiniciar.
-2. **Python 3.10+:** Escanea la máquina en busca de intérpretes válidos; si no existe o es inferior a 3.10, descarga e instala silenciosamente Python 3.12.10 y añade las variables de entorno al usuario.
-3. **Entorno Virtual (`venv`):** Crea el entorno virtual en `d:\WIS\venv\` si no existe.
+2. **Python 3.10+:** Escanea la máquina en busca de intérpretes válidos; si no existe o es inferior a 3.10, descarga e instala silenciosamente Python y añade las variables de entorno al usuario.
+3. **Entorno Virtual (`venv`):** Crea el entorno virtual en `venv\` si no existe.
 4. **Herramientas Base:** Actualiza `pip`, `setuptools` y `wheel`.
 5. **Binarios Nativos de Audio e Inferencia:** Instala `PyAudio` y `ctransformers` (motor GGUF de CPU).
 6. **Dependencias del Ecosistema:** Instala todos los paquetes de `requirements.txt` (incluyendo `faiss-cpu`, `lxml`, `rapidocr-onnxruntime`, `fastapi`, `pywebview`, etc.).
@@ -34,7 +34,7 @@ WIS requiere configurar al menos un proveedor de LLM en el archivo `Keys.env`:
 # WIS v3.0 - Variables de Entorno y Claves de API
 # =============================================================================
 
-# --- Proveedor Primario (Recomendado: DeepSeek V3) ---
+# --- Proveedor Primario (Recomendado: DeepSeek V3 / OpenRouter) ---
 DEEPSEEK_API_KEY=sk-tu-clave-aqui
 DEEPSEEK_BASE_URL=https://api.deepseek.com
 
@@ -51,6 +51,10 @@ WIS_CONSOLE_AUTH_TOKEN=auto_generate_if_empty
 # --- Broker MQTT (Para laboratorio de Hardware) ---
 MQTT_BROKER_HOST=127.0.0.1
 MQTT_BROKER_PORT=1883
+
+# --- Robótica Humanoide NAO (Opcional) ---
+NAO_IP=192.168.1.100
+NAO_PORT=9559
 ```
 
 ---
@@ -68,7 +72,7 @@ WIS puede funcionar de manera autónoma sin conexión a Internet:
      }
    }
    ```
-3. El FastPath (Path 0), los embeddings locales de MiniLM (Path 1), el caché FAISS (Path 2) y la síntesis de voz Kokoro-82M seguirán operando a máxima velocidad sin tocar servidores externos.
+3. Los embeddings locales, el caché FAISS, el motor de introspección AST y la síntesis de voz Kokoro-82M seguirán operando a máxima velocidad sin tocar servidores externos.
 
 ---
 
@@ -96,20 +100,20 @@ Sesión interactiva en la consola de comandos de PowerShell/cmd para depuración
 
 ## 5. Ejecución del Banco de Pruebas Automatizadas
 
-Para validar la integridad completa del sistema tras una modificación:
+Para validar la integridad completa del sistema tras cualquier modificación arquitectónica:
 
 ```powershell
-# Ejecución completa de todos los tests (unidad e integración):
+# Ejecución completa de la suite de pruebas (109 tests validados):
+python -m pytest tests/ -q
+
+# Ejecución detallada:
 python -m pytest tests/ -v
 
-# Ejecución rápida de la prueba de humo del stack completo:
-python -m pytest tests/test_smoke_refactor.py -v
-
-# Ejecución con cobertura:
-python -m pytest --cov=core --cov=abilities tests/
+# Verificación de importaciones de los nuevos módulos cognitivos:
+python -c "import abilities.cron; import abilities.dev_agent; import console.nao_api; import console.hotreload; print('SUBSYSTEMS OK')"
 ```
 
-Todos los 34 tests del sistema deben pasar en verde (`34 passed`).
+Todos los tests del sistema deben reportar éxito (`109 passed, 0 failures`).
 
 ---
 
@@ -122,3 +126,5 @@ Todos los 34 tests del sistema deben pasar en verde (`34 passed`).
 | **`SerialException: Access is denied` en puerto COM** | El puerto está abierto por el Monitor Serie de Arduino o PuTTY | Cierra cualquier otro software que esté bloqueando el puerto serie antes de conectar WIS. |
 | **`pywebview` falla al arrancar la ventana** | Falta el runtime WebView2 de Microsoft | `main.py` detecta el fallo automáticamente y levanta el servidor web abriendo el navegador por defecto. Para tener la ventana nativa, instala el [WebView2 Evergreen Runtime](https://developer.microsoft.com/en-us/microsoft-edge/webview2/). |
 | **Voz TTS no reproduce sonido** | El dispositivo de salida de audio predeterminado cambió | Verifica que el servicio de audio de Windows esté activo. Kokoro-82M generará el archivo WAV de todos modos en `Data/` y la consola web lo reproducirá por el navegador. |
+| **NAOqi SDK not found warning** | Entorno Windows sin bibliotecas nativas de Aldebaran en C++ | Es el comportamiento esperado en desarrollo sin el robot conectado físicamente; WIS activa automáticamente el modo mock/simulado para permitir desarrollo sin hardware físico. |
+| **Bucle sensorial VAD no detecta voz** | Micrófono de Windows deshabilitado o nivel de ganancia bajo | Ajusta la ganancia en la configuración de sonido de Windows o modifica el parámetro `vad_threshold` en `config/settings.json`. |

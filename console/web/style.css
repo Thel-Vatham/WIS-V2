@@ -1771,3 +1771,49 @@ body.standalone-terminal .terminal-actions button[action="minimize"] {
 .project-node-name { color: var(--text); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .project-node-meta { color: var(--text-muted); font-size: 9px; }
 .project-node-status { color: var(--green); font-size: 10px; }
+
+/* ════════════════════════════════════════════════════════════════
+   WIS EMPTY STATE
+   ════════════════════════════════════════════════════════════════ */
+
+.wis-empty-state {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    z-index: 10;
+    opacity: 1;
+    transition: opacity 0.4s ease;
+    pointer-events: none;
+}
+
+.wis-empty-state.hidden {
+    opacity: 0;
+}
+
+.wis-empty-logo {
+    width: 96px;
+    height: 96px;
+    opacity: 0.6;
+    filter: drop-shadow(0 0 10px var(--primary-glow));
+    animation: wisEmptyPulse 4s infinite ease-in-out;
+}
+
+.wis-empty-text {
+    margin-top: 16px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-muted);
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    opacity: 0.7;
+}
+
+@keyframes wisEmptyPulse {
+    0% { transform: scale(0.95); opacity: 0.4; filter: drop-shadow(0 0 5px var(--primary-glow)); }
+    50% { transform: scale(1.05); opacity: 0.8; filter: drop-shadow(0 0 25px var(--cyan-glow)); }
+    100% { transform: scale(0.95); opacity: 0.4; filter: drop-shadow(0 0 5px var(--primary-glow)); }
+}

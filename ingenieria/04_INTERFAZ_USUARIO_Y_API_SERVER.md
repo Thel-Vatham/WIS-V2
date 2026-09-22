@@ -1,6 +1,6 @@
 # 🖥️ WIS v3.0 — Interfaz de Usuario y Servidor API
 
-La interfaz de usuario de WIS v3.0 fue concebida como una **consola de usuario avanzado / developer terminal** nativa. Reemplaza cualquier interfaz web genérica por un entorno de alta densidad informativa, diseño de alto contraste orientado a legibilidad prolongada y control estricto de seguridad.
+La interfaz de usuario de WIS v3.0 fue concebida como una **consola de usuario avanzado / developer terminal** nativa. Reemplaza cualquier interfaz web genérica por un entorno de alta densidad informativa, diseño de alto contraste orientado a legibilidad prolongada, partición multi-consola en tiempo real y control estricto de seguridad.
 
 ---
 
@@ -38,7 +38,7 @@ La interfaz está construida en **HTML5 semántico, CSS3 moderno y Vanilla JavaS
     - Al cerrar la pestaña o recargar el navegador, las terminales activas se **auto-restauran** desde `localStorage`.
     - Cada terminal cuenta con: Registro de conversación, streaming de tokens del LLM, visualización de bloques de código y salida de herramientas en vivo.
   - **Barra Inferior (Dock):** Cuando el Grid central se llena, las terminales adicionales o minimizadas se apilan aquí en forma de pestañas interactivas y arrastrables.
-  - **Columna Derecha (File Manager):** (Planeado/Placeholder) Para inspección de árbol de directorios local de la máquina anfitriona.
+  - **Columna Derecha (File Manager):** Para inspección de árbol de directorios local de la máquina anfitriona.
 
 ---
 
@@ -53,7 +53,7 @@ La interfaz está construida en **HTML5 semántico, CSS3 moderno y Vanilla JavaS
   - Entrada: `{"message": "string", "session_id": "string"}`.
   - Respuesta: `StreamingResponse` (Event-Stream token a token) o JSON `{response, calls, path_used}`.
 - `GET /api/state`: Retorna estadísticas de memoria mnemónica, hechos almacenados y habilidades activas.
-- `GET /api/abilities`: Catálogo completo de esquemas JSON de las 19 habilidades disponibles.
+- `GET /api/abilities`: Catálogo completo de esquemas JSON de las 21 habilidades disponibles.
 - `GET /api/memory/facts`: Inspección de hechos aprendidos por el agente.
 
 ### Endpoints de Seguridad y Gobernanza (Control de Acceso)
@@ -70,6 +70,16 @@ La interfaz está construida en **HTML5 semántico, CSS3 moderno y Vanilla JavaS
 - `POST /api/tasks/long/{task_id}/pause`: Pausa temporal de una tarea en background.
 - `POST /api/tasks/long/{task_id}/resume`: Reanudación de la tarea pausada.
 - `POST /api/tasks/long/{task_id}/cancel`: Cancelación definitiva.
+
+### Endpoints de Recarga en Caliente y Mantenimiento
+- `POST /api/reload`: Desencadena la recarga de módulos y habilidades en caliente sin necesidad de reiniciar el proceso principal.
+
+### Endpoints de Robótica Física NAO (`console/nao_api.py`)
+- `GET /api/nao/status`: Retorna estado de batería, conexión y telemetría de actuadores del robot humanoide.
+- `POST /api/nao/move`: Envía comandos cinemáticos articulares seguros (Head, Arms, Postures).
+- `POST /api/nao/say`: Genera síntesis de voz directa mediante el altavoz del robot.
+- `POST /api/nao/vad_toggle`: Activa o desactiva el bucle sensorial de escucha continua en background.
+- `GET /api/nao/camera`: Recupera el último fotograma capturado por las cámaras del robot.
 
 ### Endpoints Multimedia y Renderizado
 - `POST /api/render`: Registra un fragmento HTML generado dinámicamente por WIS para ser renderizado en una ventana emergente nativa.
@@ -100,3 +110,12 @@ Cuando el `ActionPipeline` detecta una acción categorizada como de alto riesgo 
    - Diagnóstico del riesgo evaluado por el módulo de seguridad.
    - Botones interactivos de `[ AUTHORIZE EXECUTION ]` y `[ ABORT ACTION ]`.
 4. El operador decide si autoriza (`/api/approve`) o deniega (`/api/deny`).
+
+---
+
+## 6. Arquitectura Multi-Consola con Memoria Compartida
+
+La consola de WIS permite la operación simultánea de múltiples proyectos:
+- **Consolas Independientes:** Cada pestaña mantiene su propio hilo de razonamiento, directorio de trabajo (`cwd`) y control de cancelación sin interferir con las otras consolas activas.
+- **Base de Conocimiento Compartida:** Todas las consolas leen y nutren la misma base relacional SQLite (`Data/wis_memory.db` y `Data/memory.db`). Si una consola descubre un hecho técnico o genera un grafo de arquitectura de código, las demás consolas tienen acceso inmediato a ese conocimiento.
+- **Puente en Tiempo Real:** El `EventBus` global comunica eventos entre consolas, permitiendo coordinación multi-agente en tareas conjuntas.

@@ -14,6 +14,7 @@ import json
 import sys
 import time
 import threading
+import base64
 
 try:
     from naoqi import ALProxy
@@ -44,6 +45,9 @@ class NAO(object):
         self.battery_svc = None
         self.asr = None
         self.audio = None
+        self.animated_speech = None
+        self.behavior = None
+        self.sonar = None
         self._kg_thread = None
         self._kg_running = False
 
@@ -54,6 +58,19 @@ class NAO(object):
         self.leds = ALProxy("ALLeds", self.ip, self.port)
         self.memory = ALProxy("ALMemory", self.ip, self.port)
         self.battery_svc = ALProxy("ALBattery", self.ip, self.port)
+        try:
+            self.animated_speech = ALProxy("ALAnimatedSpeech", self.ip, self.port)
+        except Exception:  # noqa: BLE001
+            self.animated_speech = None
+        try:
+            self.behavior = ALProxy("ALBehaviorManager", self.ip, self.port)
+        except Exception:  # noqa: BLE001
+            self.behavior = None
+        try:
+            self.sonar = ALProxy("ALSonar", self.ip, self.port)
+            self.sonar.subscribe("wis_nao")
+        except Exception:  # noqa: BLE001
+            self.sonar = None
         try:
             self.video = ALProxy("ALVideoDevice", self.ip, self.port)
         except Exception:  # noqa: BLE001
@@ -155,6 +172,111 @@ class NAO(object):
         return {"success": True, "text": heard["text"] or ""}
 
     # ------------------------------------------------------------------ #
+    def animated_say(self, text, language="Spanish"):
+        if not self.animated_speech:
+            return {"success": False, "error": "no_animated_speech"}
+        try:
+            self.tts.setLanguage(language)
+        except Exception:
+            pass
+        self.animated_speech.say(text)
+        return {"success": True, "said": text}
+
+    def get_joints(self):
+        names = self.motion.getBodyNames("Body")
+        angles = self.motion.getAngles("Body", True)
+        return {"success": True, "joints": dict(zip(names, angles))}
+
+    def set_stiffness(self, name, stiffness):
+        self.motion.setStiffnesses(name, float(stiffness))
+        return {"success": True}
+
+    def get_memory_key(self, key):
+        try:
+            val = self.memory.getData(key)
+            return {"success": True, "value": val}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def set_memory_key(self, key, value):
+        self.memory.insertData(key, value)
+        return {"success": True}
+
+    def get_sensors(self):
+        try:
+            # Tactile
+            head_f = self.memory.getData("Device/SubDeviceList/Head/Touch/Front/Sensor/Value")
+            head_m = self.memory.getData("Device/SubDeviceList/Head/Touch/Middle/Sensor/Value")
+            head_r = self.memory.getData("Device/SubDeviceList/Head/Touch/Rear/Sensor/Value")
+            l_hand = self.memory.getData("Device/SubDeviceList/LHand/Touch/Back/Sensor/Value")
+            r_hand = self.memory.getData("Device/SubDeviceList/RHand/Touch/Back/Sensor/Value")
+            
+            # Sonar
+            sonar_l = self.memory.getData("Device/SubDeviceList/US/Left/Sensor/Value")
+            sonar_r = self.memory.getData("Device/SubDeviceList/US/Right/Sensor/Value")
+            
+            # Accel
+            acc_x = self.memory.getData("Device/SubDeviceList/InertialSensor/AccelerometerX/Sensor/Value")
+            acc_y = self.memory.getData("Device/SubDeviceList/InertialSensor/AccelerometerY/Sensor/Value")
+            acc_z = self.memory.getData("Device/SubDeviceList/InertialSensor/AccelerometerZ/Sensor/Value")
+            
+            return {
+                "success": True,
+                "tactile": {"head_front": head_f, "head_middle": head_m, "head_rear": head_r, "l_hand": l_hand, "r_hand": r_hand},
+                "sonar": {"left": sonar_l, "right": sonar_r},
+                "accelerometer": {"x": acc_x, "y": acc_y, "z": acc_z}
+            }
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def get_temperature(self, joint="Body"):
+        if joint == "Body":
+            names = self.motion.getBodyNames("Body")
+        else:
+            names = [joint]
+        temps = []
+        for n in names:
+            key = "Device/SubDeviceList/%s/Temperature/Sensor/Value" % n
+            try:
+                temps.append(self.memory.getData(key))
+            except:
+                temps.append(0)
+        return {"success": True, "temperatures": dict(zip(names, temps))}
+
+    def capture_b64(self, resolution=1):
+        # resolution: 0=QQVGA, 1=QVGA, 2=VGA
+        if not self.video:
+            return {"success": False, "error": "no_video_service"}
+        name = "wis_cam_b64"
+        try:
+            self.video.unsubscribe(name)
+        except Exception:
+            pass
+        handle = self.video.subscribeCamera(name, 0, resolution, 11, 5)
+        img = self.video.getImageRemote(handle)
+        self.video.unsubscribe(handle)
+        if not img:
+            return {"success": False, "error": "no_image"}
+        width, height = img[0], img[1]
+        img_data = img[6]
+        b64 = base64.b64encode(bytearray(img_data)).decode('ascii')
+        return {"success": True, "width": width, "height": height, "image_b64": b64}
+
+    def list_behaviors(self):
+        if not self.behavior: return {"success": False, "error": "no_behavior_mgr"}
+        return {"success": True, "behaviors": self.behavior.getInstalledBehaviors()}
+
+    def run_behavior(self, name):
+        if not self.behavior: return {"success": False, "error": "no_behavior_mgr"}
+        self.behavior.runBehavior(name)
+        return {"success": True}
+
+    def stop_behavior(self, name):
+        if not self.behavior: return {"success": False, "error": "no_behavior_mgr"}
+        self.behavior.stopBehavior(name)
+        return {"success": True}
+
+    # ------------------------------------------------------------------ #
     #  Autonomous kindergarten-teacher mode
     # ------------------------------------------------------------------ #
     def kindergarten_start(self, topic=""):
@@ -237,6 +359,28 @@ def main():
                 res = nao.battery()
             elif action == "capture":
                 res = nao.capture()
+            elif action == "capture_b64":
+                res = nao.capture_b64(p.get("resolution", 1))
+            elif action == "animated_say":
+                res = nao.animated_say(p.get("text", ""), p.get("language", "Spanish"))
+            elif action == "get_joints":
+                res = nao.get_joints()
+            elif action == "set_stiffness":
+                res = nao.set_stiffness(p.get("name", "Body"), p.get("stiffness", 1.0))
+            elif action == "get_memory_key":
+                res = nao.get_memory_key(p.get("key", ""))
+            elif action == "set_memory_key":
+                res = nao.set_memory_key(p.get("key", ""), p.get("value", 0))
+            elif action == "get_sensors":
+                res = nao.get_sensors()
+            elif action == "get_temperature":
+                res = nao.get_temperature(p.get("joint", "Body"))
+            elif action == "list_behaviors":
+                res = nao.list_behaviors()
+            elif action == "run_behavior":
+                res = nao.run_behavior(p.get("name", ""))
+            elif action == "stop_behavior":
+                res = nao.stop_behavior(p.get("name", ""))
             elif action == "listen":
                 res = nao.listen(p.get("timeout", 6.0), p.get("language", "Spanish"))
             elif action == "kindergarten_start":

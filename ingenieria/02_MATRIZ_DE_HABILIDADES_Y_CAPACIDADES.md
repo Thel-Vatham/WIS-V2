@@ -1,6 +1,6 @@
 # 🛠️ WIS v3.0 — Matriz de Habilidades y Capacidades
 
-El ecosistema de habilidades de WIS consta de **19 habilidades activas** agrupadas por dominios funcionales. Todas heredan de la clase base abstracta `Ability` ([abilities/registry.py](file:///d:/WIS/abilities/registry.py)), exponiendo esquemas estandarizados conformes a la especificación de herramientas de función de OpenAI.
+El ecosistema de habilidades de WIS consta de **21 habilidades activas** agrupadas por dominios funcionales. Todas heredan de la clase base abstracta `Ability` (`abilities/registry.py`), exponiendo esquemas estandarizados conformes a la especificación de herramientas de función de OpenAI.
 
 ---
 
@@ -8,21 +8,23 @@ El ecosistema de habilidades de WIS consta de **19 habilidades activas** agrupad
 
 | Habilidad | Dominio | Módulo de Origen | Descripción Clave |
 |---|---|---|---|
-| **`code_tools`** | PC / Desarrollo | `abilities/pc/code_ability.py` | Ejecución Python, refactor AST y TDD |
-| **`desktop`** | PC / Sistema | `abilities/pc/desktop_ability.py` | Control de ventanas DWM, procesos y apps |
+| **`dev_agent`** | Meta-Programación / AST | `abilities/dev_agent.py` | Grafo de código relacional AST, auto-diagnóstico y refactor |
+| **`cron`** | Autonomía / Vida | `abilities/cron.py` | Scheduler cognitivo en background y proactividad desatendida |
+| **`code_tools`** | PC / Desarrollo | `abilities/pc/code_ability.py` | Ejecución Python, refactor AST y ciclo TDD |
+| **`desktop`** | PC / Sistema | `abilities/pc/desktop_ability.py` | Control de ventanas DWM, procesos y apps Win32 |
 | **`filesystem`** | PC / Almacenamiento | `abilities/pc/filesystem_ability.py` | Operaciones de archivos atómicas y sandboxing |
-| **`shell_comm`** | PC / Shell | `abilities/pc/filesystem_ability.py` | Ejecución PowerShell asíncrona segura |
-| **`screen_vision`** | PC / Visión | `abilities/pc/screen_ability.py` | OCR y Set-of-Marks (SOM) en pantalla |
-| **`advanced_desktop`**| PC / Integrado | `abilities/pc/advanced_desktop_ability.py` | Orquestador multi-motor de escritorio |
-| **`serial_comm`** | Hardware / IoT | `abilities/serial_comm.py` | Conexión UART/RS232 con ACK empírico |
-| **`mqtt_comm`** | Hardware / IoT | `abilities/mqtt_comm.py` | Cliente MQTT con QoS y telemetría |
-| **`toolchain`** | Hardware / Firmware | `abilities/toolchain.py` | PlatformIO, Arduino-CLI y esptool |
+| **`shell_comm`** | PC / Shell | `abilities/pc/filesystem_ability.py` | Ejecución PowerShell asíncrona segura con timeouts |
+| **`screen_vision`** | PC / Visión | `abilities/pc/screen_ability.py` | OCR de alta velocidad y Set-of-Marks (SOM) en pantalla |
+| **`advanced_desktop`**| PC / Integrado | `abilities/pc/advanced_desktop_ability.py` | Orquestador multi-motor de escritorio nativo |
+| **`serial_comm`** | Hardware / IoT | `abilities/serial_comm.py` | Conexión UART/RS232 con ACK físico empírico |
+| **`mqtt_comm`** | Hardware / IoT | `abilities/mqtt_comm.py` | Cliente MQTT con QoS 0/1/2 y suscripción a telemetría |
+| **`toolchain`** | Hardware / Firmware | `abilities/toolchain.py` | PlatformIO, Arduino-CLI, esptool y git |
 | **`browser`** | Web / Navegación | `abilities/browser.py` | Automatización Chromium con Playwright |
-| **`web_search`** | Web / Búsqueda | `abilities/web_search.py` | Motor DuckDuckGo sin credenciales |
-| **`vision`** | Percepción | `abilities/vision.py` | Reconocimiento de imágenes y cámaras |
-| **`voice`** | Interfaz Humana | `abilities/voice.py` | Síntesis Kokoro-82M ONNX TTS local |
+| **`web_search`** | Web / Búsqueda | `abilities/web_search.py` | Motor de búsqueda web sin claves API |
+| **`vision`** | Percepción | `abilities/vision.py` | Reconocimiento de imágenes y cámaras locales |
+| **`voice`** | Interfaz Humana | `abilities/voice.py` | Síntesis Kokoro-82M ONNX TTS local (0ms cloud) |
 | **`listen`** | Interfaz Humana | `abilities/listen.py` | Reconocimiento de voz STT por micrófono |
-| **`system`** | Sistema Operativo | `abilities/system_ability.py` | Métricas de CPU/RAM, timers y audio |
+| **`system`** | Sistema Operativo | `abilities/system_ability.py` | Métricas de CPU/RAM, timers y control de audio |
 | **`knowledge`** | Memoria | `abilities/knowledge_ability.py` | Búsqueda y gestión de hechos en SQLite |
 | **`file_manager`** | Utilidades | `abilities/file_manager.py` | Exploración estructurada de directorios |
 | **`builder`** | Meta-Programación | `abilities/builder.py` | Síntesis de nuevas habilidades en caliente |
@@ -32,7 +34,22 @@ El ecosistema de habilidades de WIS consta de **19 habilidades activas** agrupad
 
 ## 🔍 Detalle Técnico por Dominio
 
-### 1. Dominio de Desarrollo y Automatización de PC (Herencia AVRORA)
+### 1. Dominio de Desarrollo Autónomo y Meta-Programación
+
+#### `dev_agent` (`abilities/dev_agent.py`)
+- **Acciones:**
+  - `map_architecture(root_dir)`: Parsea recursivamente el AST de todo el repositorio, extrayendo clases, funciones, docstrings e imports, e insertándolos en la base de datos relacional `memory.db` (`code_entities`). Permite al agente razonar sobre repositorios gigantescos sin saturar la ventana de contexto.
+  - `generate_code(spec, file_path)`: Diseña y escribe módulos completos siguiendo arquitectura limpia y tipado estricto.
+  - `refactor_code(file_path, instructions)`: Modifica código existente asegurando preservación de contratos de interfaz.
+  - `diagnose_bug(traceback, code_context)`: Analiza trazas de error del sistema operativo y formula parches quirúrgicos.
+  - `run_tests(test_path)`: Dispara la suite de pruebas automatizadas y reporta fallos estructurados.
+
+#### `cron` (`abilities/cron.py`)
+- **Acciones:**
+  - `schedule_task(task_name, interval_seconds, prompt)`: Programa una tarea cognitiva recurrente o periódica en segundo plano.
+  - `list_tasks()`: Consulta las tareas activas en el scheduler autónomo.
+  - `cancel_task(task_name)`: Cancela una tarea de fondo programada.
+  - `trigger_thought(prompt)`: Dispara inmediatamente un pulso cognitivo autónomo sin intervención del usuario.
 
 #### `code_tools` (`abilities/pc/code_ability.py`)
 - **Acciones:**
@@ -41,6 +58,10 @@ El ecosistema de habilidades de WIS consta de **19 habilidades activas** agrupad
   - `rename_symbol(file_path, old_name, new_name)`: Realiza refactorización segura a nivel de sintaxis AST (evita reemplazos accidentales de texto).
   - `wrap_try_except(file_path, target_function)`: Envuelve funciones en bloques de captura de excepciones estructurados.
   - `run_tdd_cycle(test_file, impl_file)`: Ejecuta ciclo TDD (Rojo-Verde-Refactor) con reportes de cobertura.
+
+---
+
+### 2. Dominio de Automatización de PC y Sistema Operativo
 
 #### `desktop` (`abilities/pc/desktop_ability.py`)
 - **Acciones:**
@@ -66,7 +87,7 @@ El ecosistema de habilidades de WIS consta de **19 habilidades activas** agrupad
 
 ---
 
-### 2. Dominio de Hardware e Ingeniería de Firmware
+### 3. Dominio de Hardware e Ingeniería de Firmware
 
 #### `serial_comm` (`abilities/serial_comm.py`)
 - **Acciones:**
@@ -89,7 +110,7 @@ El ecosistema de habilidades de WIS consta de **19 habilidades activas** agrupad
 
 ---
 
-### 3. Dominio Web y Navegación
+### 4. Dominio Web, Búsqueda y Navegación
 
 #### `browser` (`abilities/browser.py`)
 - Motor basado en **Playwright Chromium**:
@@ -104,7 +125,7 @@ El ecosistema de habilidades de WIS consta de **19 habilidades activas** agrupad
 
 ---
 
-### 4. Dominio de Percepción, Voz y Utilidades
+### 5. Dominio de Percepción, Voz y Utilidades
 
 #### `voice` & `listen`
 - **Voice (`Kokoro-82M ONNX`):** Genera voz en inglés de calidad ultra-realista de forma 100% local en CPU sin latencia de red.

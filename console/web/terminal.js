@@ -48,14 +48,14 @@ class TerminalInstance {
             { cmd: "/help",          args: "",                  desc: "Lista todos los comandos disponibles" },
             { cmd: "/swarm",         args: "",                  desc: "Interroga el estado del enjambre de terminales" },
             { cmd: "/hw-scan",       args: "",                  desc: "Escanea puertos COM (serial) e IPs en red local" },
-            { cmd: "/port",          args: "<num>",             desc: "Levanta un micro-servidor HTTP estatico en la carpeta" },
-            { cmd: "/git",           args: "<mensaje>",        desc: "Hace add, commit y push del codigo automaticamente" },
+            { cmd: "/port",          args: "<num_opcional>",    desc: "Levanta un micro-servidor HTTP estatico en la carpeta" },
+            { cmd: "/git",           args: "<msg_opcional>",    desc: "Hace add, commit y push del codigo automaticamente" },
             { cmd: "/build",         args: "",                  desc: "Detecta e invoca el comando de build o install del proyecto" },
             { cmd: "/reboot",        args: "",                  desc: "Limpia la memoria a corto plazo del LLM en esta sesion" },
             { cmd: "/goal",          args: "<desc>",            desc: "Lanza un worker en background para un objetivo largo" },
             { cmd: "/proactividad",  args: "<on|off>",          desc: "Enciende o apaga el motor proactivo" },
             { cmd: "/ping",          args: "<ip>",              desc: "Verifica latencia contra una IP local o remota" },
-            { cmd: "/list",          args: "",                  desc: "Lista los archivos del proyecto actual" },
+            { cmd: "/list",          args: "<ruta_opcional>",   desc: "Lista los archivos del proyecto o ruta especificada" },
             { cmd: "/run",           args: "<comando>",         desc: "Ejecuta y muestra el output en ventana modal" },
             { cmd: "/open",          args: "<archivo>",         desc: "Abre el archivo en una nueva pestana del navegador" },
             { cmd: "/sys",           args: "",                  desc: "Muestra la telemetria del SO Host (CPU, RAM, Discos)" },
@@ -741,6 +741,11 @@ class TerminalManager {
             return el.classList.contains("terminal-pane") && !el.classList.contains("is-floating");
         }).length;
         this.grid.dataset.count = visibleCount;
+        
+        const emptyState = document.getElementById("wis-empty-state");
+        if (emptyState) {
+            emptyState.classList.toggle("hidden", visibleCount > 0);
+        }
     }
 }
 

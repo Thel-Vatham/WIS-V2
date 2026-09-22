@@ -1,9 +1,10 @@
 # 🧠 WIS v3.0 — Arquitectura Cognitiva Pure-LLM y Pipeline de Ejecución
 
-El corazón de WIS es su **ActionPipeline** ([core/pipeline.py](file:///d:/WIS/core/pipeline.py)), un motor orquestador basado en la **filosofía pura de AVRORA**:
+El corazón de WIS es su **ActionPipeline** (`core/pipeline.py`), un motor orquestador basado en la **filosofía pura de AVRORA**:
 - **Cero heurísticas hardcoded:** No existen interceptores de expresiones regulares ni atajos que eviten el razonamiento.
 - **Todo pasa por el LLM:** Toda solicitud nueva ingresa directamente al bucle ReAct (`think → parallel execute → verify → metacognitive check → repair → synthesize`).
 - **Velocidad adquirida dinámicamente:** La única ejecución instantánea proviene de `SkillMemory`, que cachea secuencias completas **únicamente después** de que el LLM las ha probado, verificado empíricamente y sintetizado con éxito.
+- **Vida Autónoma y Cognición Espontánea:** WIS no sólo responde cuando un usuario escribe; cuenta con un bucle sensorial continuo y un cron cognitivo que generan impulsos autónomos internos.
 
 ---
 
@@ -11,7 +12,7 @@ El corazón de WIS es su **ActionPipeline** ([core/pipeline.py](file:///d:/WIS/c
 
 ```mermaid
 flowchart TD
-    IN(["⚡ ENTRADA DEL USUARIO / TELEMETRÍA"]) --> P1{"¿Conocido en SkillMemory Cache?<br>(FAISS IndexFlatIP + SQLite)"}
+    IN(["⚡ ENTRADA: USUARIO / TELEMETRÍA / CRON / VAD SENSORIAL"]) --> P1{"¿Conocido en SkillMemory Cache?<br>(FAISS IndexFlatIP + SQLite)"}
     
     P1 -- "Hit (Secuencia Sintetizada y Probada)" --> R1["Reproducción Directa de Tool Calls (Instantánea)"]
     P1 -- "Miss (Nueva Consulta)" --> P2["[Pure LLM] ReAct Multi-Step Loop<br>(Razonamiento Profundo + Auto-reparación)"]
@@ -19,7 +20,7 @@ flowchart TD
     subgraph Loop ["Bucle ReAct con Paralelismo"]
         P2 --> THINK["Think: LLM analiza la intención y genera Tool Calls"]
         THINK --> PARALLEL["Execute: asyncio.gather(Tool Calls Paralelas)"]
-        PARALLEL --> EMPIRICAL["Verificación Empírica (PID / File / ACK / QoS)"]
+        PARALLEL --> EMPIRICAL["Verificación Empírica (PID / File / ACK / QoS / AST)"]
         EMPIRICAL --> REPAIR{"¿Fallo de Ejecución?"}
         REPAIR -- "Sí" --> AUTO_FIX["Auto-Repair: Inyecta diagnóstico del SO al LLM"]
         AUTO_FIX --> THINK
@@ -61,7 +62,7 @@ WIS soporta múltiples terminales trabajando en paralelo dentro de la misma inte
 
 ---
 
-## 3. MetaCognitive Verifier (`core/verifier.py`)
+## 4. MetaCognitive Verifier (`core/verifier.py`)
 
 Portado e integrado desde la arquitectura de vanguardia de AVRORA, el **MetaCognitive Verifier** actúa como un árbitro metacognitivo post-síntesis:
 - Evalúa si la respuesta generada por el LLM declara falsamente haber completado una acción que en el trace real falló (detección de falsos positivos).
@@ -70,7 +71,7 @@ Portado e integrado desde la arquitectura de vanguardia de AVRORA, el **MetaCogn
 
 ---
 
-## 4. Bucle Autónomo de Telemetría (Closed-Loop Proactivity)
+## 5. Bucle Autónomo de Telemetría (Closed-Loop Proactivity)
 
 WIS no es solo un asistente reactivo a comandos de texto; posee un lazo de control cerrado con el mundo físico:
 
@@ -93,9 +94,9 @@ sequenceDiagram
 
 ---
 
-## 5. Orquestación de Metas de Largo Horizonte
+## 6. Orquestación de Metas de Largo Horizonte
 
-Para tareas que requieren minutos u horas de ejecución sostenida, WIS dispone de dos componentes avanzados:
+Para tareas que requieren minutos u horas de ejecución sostenida, WIS dispone de tres componentes avanzados:
 
 1. **DAG Mission Planner (`core/mission.py`):**  
    Descompone objetivos masivos en un grafo acíclico dirigido (DAG) de dependencias. Cada nodo representa una etapa verificable con precondiciones y postcondiciones. Si una rama falla, no aborta el sistema completo; replanifica únicamente el subgrafo afectado.
@@ -108,10 +109,39 @@ Para tareas que requieren minutos u horas de ejecución sostenida, WIS dispone d
 
 ---
 
-## 6. Síntesis y Extensión Dinámica de Habilidades (`core/skill_synthesizer.py`)
+## 7. Motor de Vida Autónoma y Cron Cognitivo (`abilities/cron.py`)
 
-WIS es capaz de programarse a sí mismo:
-1. Si un objetivo requiere una capacidad inexistente, el LLM escribe el código Python de una nueva subclase de `Ability`.
-2. **Validación AST Estricta:** El analizador sintáctico AST inspecciona el código antes de cargarlo, bloqueando llamadas peligrosas (`os.system`, `subprocess.Popen` sin control, accesos indebidos al sistema de archivos).
-3. **Prueba en Sandbox Virtual:** Instancia la clase en un módulo aislado en memoria y comprueba la presencia de `get_schema()` y la ejecución de `execute()`.
-4. **Hot-Reload en Caliente:** Si supera el sandbox, guarda el archivo en `abilities/custom/` y lo registra dinámicamente en el `AbilityRegistry` sin necesidad de reiniciar WIS.
+Para trascender la condición de chatbot pasivo y convertirse en un sistema operativo con vida propia, WIS incorpora un scheduler cognitivo autónomo:
+- **Hilo Daemon de Fondo:** Un hilo desacoplado evalúa periódicamente intervalos de tiempo y cron expressions configurables.
+- **Invocación Desatendida (`pipeline.autonomous_trigger`):** Sin requerir que un operador humano escriba en la consola, el scheduler despacha impulsos cognitivos al pipeline.
+- **Casos de Uso Autónomos:**
+  1. *Auditoría de Salud del Entorno:* Ejecución de pruebas de regresión automáticas en repositorios monitorizados.
+  2. *Monitoreo Preventivo de Hardware:* Inspección periódica de puertos serie y métricas MQTT.
+  3. *Reflexión y Síntesis Nocturna:* Consolidación de memorias de corto plazo a memoria de largo plazo en SQLite.
+
+---
+
+## 8. Knowledge Graph de Código y Memoria Estructural AST (`abilities/dev_agent.py`)
+
+Uno de los principales cuellos de botella de los agentes tradicionales es la ventana de contexto de tokens cuando trabajan con bases de código grandes. WIS resuelve esto mediante su motor de introspección AST:
+- **Análisis Sintáctico Recursivo (`map_architecture`):** Recorre el árbol de directorios parseando archivos Python mediante la librería nativa `ast`.
+- **Extracción de Grafos de Símbolos:** Identifica clases, funciones, docstrings, decoradores, imports y llamadas salientes.
+- **Persistencia Relacional en SQLite (`Data/memory.db`):** Inserta los símbolos en la tabla relacional `code_entities`.
+- **Consulta Estructural Sin Carga de Tokens:** Permite al LLM consultar la ubicación exacta, métodos y dependencias de cualquier símbolo del sistema mediante consultas SQL optimizadas, modificando código a nivel quirúrgico sin necesidad de inyectar archivos enteros en el prompt.
+
+---
+
+## 9. Bucle Sensorial Desacoplado y Detección de Actividad Vocal (VAD) (`console/nao_api.py`)
+
+Para el despliegue en robótica física (como el robot humanoide Aldebaran/SoftBank Robotics NAO o plataformas de drones autónomos):
+- **Adquisición Continua en Tiempo Real:** Un hilo de captura de audio escucha continuamente el flujo del micrófono del robot.
+- **Voice Activity Detection (VAD) por Umbral de Energía:** Calcula el valor cuadrático medio (RMS) del audio en tiempo real.
+- **Activación Espontánea:** Al superar el umbral de ruido ambiental calibrado,WIS activa la transcripción y el pipeline de pensamiento sin requerir palabras de activación estáticas (wake words rígidas) ni pulsación de botones.
+
+---
+
+## 10. Recarga en Caliente de Habilidades y Auto-Extensión (Hot-Reload)
+
+WIS implementa auto-extensión y actualización en caliente sin reinicio:
+1. **Síntesis Dinámica (`core/skill_synthesizer.py`):** El agente puede redactar nuevas herramientas en caliente, someterlas a validación sintáctica AST y ejecutarlas en un sandbox seguro en memoria.
+2. **Hot-Reload Watcher (`console/hotreload.py`):** Monitoriza los archivos en `abilities/` y `abilities/custom/`. Al detectar una modificación o nueva habilidad, recarga dinámicamente el módulo Python mediante `importlib.reload()`, desregistrando la versión antigua y registrando la nueva en `AbilityRegistry` con cero caída de servicio.

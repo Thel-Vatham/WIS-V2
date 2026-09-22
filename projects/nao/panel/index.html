@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NAO Control Center</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="brand">
+                <i class="fa-solid fa-robot"></i>
+                <h2>NAO <span>Control</span></h2>
+            </div>
+            
+            <div class="connection-card">
+                <div class="status-indicator">
+                    <div class="dot" id="conn-dot"></div>
+                    <span id="conn-text">Disconnected</span>
+                </div>
+                <div class="battery-wrapper">
+                    <div class="battery-level" id="batt-level"></div>
+                    <span id="batt-text">--%</span>
+                </div>
+            </div>
+
+            <nav class="main-nav">
+                <button class="nav-btn active" data-target="dashboard"><i class="fa-solid fa-gauge"></i> Dashboard</button>
+                <button class="nav-btn" data-target="camera"><i class="fa-solid fa-camera"></i> Camera & Vision</button>
+                <button class="nav-btn" data-target="motion"><i class="fa-solid fa-person-walking"></i> Motion & Joints</button>
+                <button class="nav-btn" data-target="speech"><i class="fa-solid fa-comment-dots"></i> Speech & Audio</button>
+                <button class="nav-btn" data-target="autonomous"><i class="fa-solid fa-brain"></i> Autonomous</button>
+            </nav>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Dashboard View -->
+            <section id="dashboard" class="view active">
+                <header>
+                    <h1>Dashboard overview</h1>
+                    <p>Real-time telemetry and quick actions</p>
+                </header>
+
+                <div class="grid dashboard-grid">
+                    <div class="card">
+                        <h3><i class="fa-solid fa-bolt"></i> Quick Actions</h3>
+                        <div class="action-grid">
+                            <button class="action-btn" onclick="apiCall('posture', {name: 'StandInit'})">Stand Init</button>
+                            <button class="action-btn" onclick="apiCall('posture', {name: 'Sit'})">Sit Down</button>
+                            <button class="action-btn" onclick="apiCall('posture', {name: 'Crouch'})">Crouch</button>
+                            <button class="action-btn" onclick="apiCall('posture', {name: 'Rest'})">Rest</button>
+                            <button class="action-btn danger" onclick="apiCall('set_stiffness', {name: 'Body', stiffness: 0.0})">Relax All (Fall)</button>
+                            <button class="action-btn success" onclick="apiCall('set_stiffness', {name: 'Body', stiffness: 1.0})">Stiffen All</button>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <h3><i class="fa-solid fa-microchip"></i> Sensors (Live)</h3>
+                        <div class="sensor-list">
+                            <div class="sensor-item">
+                                <span>Sonar (L / R)</span>
+                                <strong id="val-sonar">-- / --</strong>
+                            </div>
+                            <div class="sensor-item">
+                                <span>Head Touch (F/M/R)</span>
+                                <strong id="val-head-touch">- / - / -</strong>
+                            </div>
+                            <div class="sensor-item">
+                                <span>Hands Touch (L/R)</span>
+                                <strong id="val-hands-touch">- / -</strong>
+                            </div>
+                            <div class="sensor-item">
+                                <span>Accel (X/Y/Z)</span>
+                                <strong id="val-accel">- / - / -</strong>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Speech View -->
+            <section id="speech" class="view">
+                <header>
+                    <h1>Speech & Audio</h1>
+                    <p>Make NAO speak and listen</p>
+                </header>
+                <div class="card">
+                    <h3>Text to Speech</h3>
+                    <div class="input-group">
+                        <textarea id="tts-text" placeholder="Type something for NAO to say..."></textarea>
+                    </div>
+                    <div class="input-row">
+                        <select id="tts-lang">
+                            <option value="Spanish">Spanish</option>
+                            <option value="English">English</option>
+                        </select>
+                        <label><input type="checkbox" id="tts-animated" checked> Animated Speech</label>
+                        <button class="primary-btn" onclick="speak()">Speak</button>
+                    </div>
+                </div>
+                
+                <div class="card mt-4">
+                    <h3>LED Control</h3>
+                    <div class="action-grid">
+                        <button class="action-btn" onclick="apiCall('leds', {color: 0xFFFFFF})">White</button>
+                        <button class="action-btn" style="background:#ff3333;color:white" onclick="apiCall('leds', {color: 0xFF0000})">Red</button>
+                        <button class="action-btn" style="background:#33cc33;color:white" onclick="apiCall('leds', {color: 0x00FF00})">Green</button>
+                        <button class="action-btn" style="background:#3366ff;color:white" onclick="apiCall('leds', {color: 0x0000FF})">Blue</button>
+                        <button class="action-btn" onclick="apiCall('leds_off')">Turn Off</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Camera View -->
+            <section id="camera" class="view">
+                <header>
+                    <h1>Camera & Vision</h1>
+                    <p>Live feed from NAO's cameras</p>
+                </header>
+                <div class="card camera-card">
+                    <div class="camera-feed">
+                        <img id="cam-img" src="" alt="Camera feed will appear here" style="display:none;">
+                        <div id="cam-placeholder"><i class="fa-solid fa-camera"></i></div>
+                    </div>
+                    <div class="camera-controls">
+                        <button class="primary-btn" onclick="captureImage()"><i class="fa-solid fa-camera"></i> Capture Frame</button>
+                        <button class="action-btn" id="stream-btn" onclick="toggleStream()"><i class="fa-solid fa-video"></i> Start Stream</button>
+                    </div>
+                </div>
+            </section>
+            
+            <!-- Motion View -->
+            <section id="motion" class="view">
+                <header>
+                    <h1>Motion & Joints</h1>
+                    <p>Direct control over motors</p>
+                </header>
+                <div class="card">
+                    <h3>Head Control</h3>
+                    <div class="joint-controls">
+                        <div class="slider-group">
+                            <label>HeadYaw (Left/Right)</label>
+                            <input type="range" min="-2.0" max="2.0" step="0.1" value="0" onchange="setAngle('HeadYaw', this.value)">
+                        </div>
+                        <div class="slider-group">
+                            <label>HeadPitch (Up/Down)</label>
+                            <input type="range" min="-0.6" max="0.5" step="0.1" value="0" onchange="setAngle('HeadPitch', this.value)">
+                        </div>
+                    </div>
+                </div>
+            </section>
+            
+            <!-- Autonomous View -->
+            <section id="autonomous" class="view">
+                <header>
+                    <h1>Kindergarten Teacher Mode</h1>
+                    <p>Turn NAO into an autonomous AI agent backed by WIS</p>
+                </header>
+                <div class="card auto-card">
+                    <div class="auto-status">
+                        <div class="brain-icon" id="brain-indicator"><i class="fa-solid fa-brain"></i></div>
+                        <h2 id="auto-state-text">Idle</h2>
+                        <p>When activated, NAO will listen for voices, process them via WIS, and respond autonomously with gestures.</p>
+                    </div>
+                    <div class="auto-controls">
+                        <button class="primary-btn lg" id="btn-auto-start" onclick="startAutonomous()">Start Teacher Mode</button>
+                        <button class="action-btn danger lg" id="btn-auto-stop" onclick="stopAutonomous()" style="display:none;">Stop Mode</button>
+                    </div>
+                </div>
+            </section>
+
+        </main>
+    </div>
+
+    <script src="panel.js"></script>
+</body>
+</html>

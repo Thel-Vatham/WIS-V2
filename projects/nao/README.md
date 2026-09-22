@@ -35,6 +35,9 @@ WIS (Python 3.11)
 | Archivo | Qué es |
 |---|---|
 | `nao_bridge.py` | **Puente principal.** Worker Python 2.7 con protocolo JSON por línea. Lo lanza WIS automáticamente. |
+| `panel_server.py`| **Servidor web FastAPI (Python 3.11).** UI de control total y telemetría sobre WebSockets (puerto 7860). |
+| `kindergarten_teacher.py` | **Modo Autónomo.** Conecta los sensores/micro de NAO con el LLM de WIS para actuar como profesor. |
+| `panel/` | Carpeta con la interfaz web (HTML/JS/CSS). |
 | `possess_wis.py` | Script de "toma de posesión": despierta el robot, postura `StandInit`, LEDs azules, habla en español y saluda. |
 | `oneshot_test.py` | Prueba mínima: importa NAOqi, conecta, pone español y dice una frase. |
 | `_live_test.py` | Prueba del puente de extremo a extremo (connect → set_language → speak → battery → quit). |
@@ -48,6 +51,21 @@ En la consola de WIS, abre el proyecto **nao** y pídelo en lenguaje natural:
 
 La ability `nao_robot` levanta el puente sola. Si el robot no responde,
 revisa que esté encendido y en la misma red (IP en `abilities/nao_robot.py`).
+
+### Panel Web y Control Total
+Para abrir la interfaz de usuario completa (cámara, sensores, articulaciones):
+```powershell
+# Lanzar el servidor web (Python 3.11)
+python projects\nao\panel_server.py
+```
+Luego abre en tu navegador: [http://localhost:7860](http://localhost:7860)
+
+### Modo Autónomo "Profesor de Jardín"
+Para que NAO opere autónomamente razonando mediante el pipeline LLM de WIS:
+```powershell
+python projects\nao\kindergarten_teacher.py
+```
+(Asegúrate de que `panel_server.py` esté corriendo primero, ya que usa su API REST).
 
 ### Pruebas directas (con el robot encendido)
 ```powershell

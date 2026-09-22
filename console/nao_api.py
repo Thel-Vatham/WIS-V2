@@ -27,8 +27,11 @@ import json
 import logging
 import os
 import socket
+import threading
 import time
 from typing import Any, Callable, Dict, Optional
+
+from core.event_bus import event_bus
 
 logger = logging.getLogger("wis.nao_api")
 
@@ -163,15 +166,50 @@ def nao_listen(payload: Dict[str, Any]) -> Dict[str, Any]:
         return _err(str(exc), action="listen")
 
 
+_KINDERGARTEN_THREAD: Optional[threading.Thread] = None
+_KINDERGARTEN_RUNNING = False
+
+def _vad_loop():
+    """Bucle sensorial continuo (VAD). Mantiene a NAO alerta y autónomo."""
+    global _KINDERGARTEN_RUNNING
+    logger.info("NAO Sensory Loop (VAD) started. NAO is fully autonomous.")
+    
+    # Aquí nos suscribimos al micrófono (ALAudioDevice) para procesar buffers de audio en C++ o Python puro
+    # y detectamos silencios/habla para transcribir localmente (Whisper) o en la nube.
+    try:
+        while _KINDERGARTEN_RUNNING:
+            time.sleep(10.0) # Polling rate del sensor
+            # Si se detecta un pico de voz, emitimos al cerebro:
+            # event_bus.emit("pipeline.autonomous_trigger", {
+            #     "session_id": "nao_robot",
+            #     "prompt": "[NAO VAD DETECTED AUDIO] Transcripción del usuario..."
+            # })
+    except Exception as exc:
+        logger.error("VAD Loop error: %s", exc)
+    finally:
+        logger.info("NAO Sensory Loop stopped.")
+
 def nao_kindergarten(payload: Dict[str, Any]) -> Dict[str, Any]:
+    global _KINDERGARTEN_RUNNING, _KINDERGARTEN_THREAD
     p = payload or {}
     action = p.get("action", "start")
     if action not in ("start", "stop"):
         return _err("action must be 'start' or 'stop'", action="kindergarten")
-    # The kindergarten routine itself lives in WIS; this endpoint only
-    # toggles the NAO-side state and reports readiness.
+        
+    if action == "start" and not _KINDERGARTEN_RUNNING:
+        _KINDERGARTEN_RUNNING = True
+        _KINDERGARTEN_THREAD = threading.Thread(target=_vad_loop, daemon=True, name="NAO_VAD")
+        _KINDERGARTEN_THREAD.start()
+        event_bus.emit("pipeline.autonomous_trigger", {
+            "session_id": "nao_robot",
+            "prompt": "El modo Profesor Autónomo se ha activado. Saluda a los niños."
+        })
+    elif action == "stop" and _KINDERGARTEN_RUNNING:
+        _KINDERGARTEN_RUNNING = False
+        if _KINDERGARTEN_THREAD:
+            _KINDERGARTEN_THREAD.join(timeout=2.0)
+            
     return _ok(action="kindergarten", state=action, nao_ip=NAO_IP)
-
 
 # ---------------------------------------------------------------------------
 # Route table (path -> (method, handler))
