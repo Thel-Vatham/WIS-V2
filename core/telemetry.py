@@ -110,7 +110,7 @@ class TelemetryEngine:
         event_bus.emit("telemetry.received", {"source": source, "data": data})
 
         triggered_rules = []
-        for rule_id, rule in self._rules.items():
+        for rule_id, rule in list(self._rules.items()):
             if rule.metric in data:
                 try:
                     val = float(data[rule.metric])

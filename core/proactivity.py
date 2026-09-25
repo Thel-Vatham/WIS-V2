@@ -65,10 +65,12 @@ class ProactivityEngine:
 
     def _save(self, data: dict) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        self._path.write_text(
+        tmp_file = self._path.with_suffix(".tmp")
+        tmp_file.write_text(
             json.dumps(data, ensure_ascii=False, indent=2, sort_keys=True),
             encoding="utf-8",
         )
+        os.replace(tmp_file, self._path)
 
     # ---- Rules CRUD --------------------------------------------------------
 

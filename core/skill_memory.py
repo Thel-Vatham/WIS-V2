@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
-from core.memory import _Embedder, _cosine_similarity
+from core.memory import Memory, _Embedder, _cosine_similarity
 
 logger = logging.getLogger("wis.core.skill_memory")
 
@@ -105,6 +105,21 @@ class SkillMemory:
             )
             self._conn.commit()
 
+    def _rebuild_faiss_index(self) -> None:
+        if not self._vectors:
+            self._faiss_index = None
+            return
+        try:
+            import faiss
+            import numpy as np
+            self._faiss_index = faiss.IndexFlatIP(384)
+            vecs = [v[1] for v in self._vectors]
+            np_vecs = np.array(vecs, dtype=np.float32)
+            faiss.normalize_L2(np_vecs)
+            self._faiss_index.add(np_vecs)
+        except Exception:
+            self._faiss_index = None
+
     def _load_vectors(self) -> None:
         with self._lock:
             rows = self._conn.execute(
@@ -113,28 +128,12 @@ class SkillMemory:
             ).fetchall()
         
         self._vectors = []
-        import numpy as np
-        if rows and hasattr(Memory, "_deserialize_embedding"):
-            try:
-                import faiss
-                self._faiss_index = faiss.IndexFlatIP(384) # sentence-transformers/all-MiniLM-L6-v2 dim
-                vecs = []
-                for idx, row in enumerate(rows):
-                    skill_id, emb_blob, text = row
-                    emb = Memory._deserialize_embedding(emb_blob)
-                    self._vectors.append((skill_id, emb, text))
-                    vecs.append(emb)
-                
-                if vecs:
-                    np_vecs = np.array(vecs, dtype=np.float32)
-                    faiss.normalize_L2(np_vecs)
-                    self._faiss_index.add(np_vecs)
-            except ImportError:
-                # Fallback if faiss is not available
-                self._faiss_index = None
-                self._vectors = [
-                    (row[0], Memory._deserialize_embedding(row[1]), row[2]) for row in rows
-                ]
+        if rows:
+            for row in rows:
+                skill_id, emb_blob, text = row
+                emb = Memory._deserialize_embedding(emb_blob)
+                self._vectors.append((skill_id, emb, text))
+            self._rebuild_faiss_index()
         else:
             self._faiss_index = None
 
@@ -291,9 +290,13 @@ class SkillMemory:
     def _upsert_ram_vector(self, skill_id: int, vec: List[float], text: str) -> None:
         self._vectors = [v for v in self._vectors if v[0] != skill_id]
         self._vectors.append((skill_id, vec, text))
+        if getattr(self, "_faiss_index", None) is not None:
+            self._rebuild_faiss_index()
 
     def _remove_ram_vector(self, skill_id: int) -> None:
         self._vectors = [v for v in self._vectors if v[0] != skill_id]
+        if getattr(self, "_faiss_index", None) is not None:
+            self._rebuild_faiss_index()
 
     def stats(self) -> Dict[str, int]:
         with self._lock:
@@ -322,7 +325,3 @@ class SkillMemory:
                 self._conn.close()
             except Exception:
                 pass
-
-
-# Import local Memory helper
-from core.memory import Memory

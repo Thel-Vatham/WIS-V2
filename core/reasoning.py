@@ -190,9 +190,7 @@ class ReasoningEngine:
         if not tools:
             return []
 
-        # Reiniciar el mapa para esta invocacion.
-        self._tool_map.clear()
-
+        local_map: Dict[str, Any] = {}
         api_tools: List[Dict[str, Any]] = []
         seen_names: set = set()
 
@@ -206,7 +204,7 @@ class ReasoningEngine:
             if not actions:
                 if skill_name and skill_name not in seen_names:
                     seen_names.add(skill_name)
-                    self._tool_map[skill_name] = (skill_name, "")
+                    local_map[skill_name] = (skill_name, "")
                     api_tools.append({
                         "type": "function",
                         "function": {
@@ -230,7 +228,7 @@ class ReasoningEngine:
                     suffix += 1
                     fn_name = f"{base_name}_{suffix}"
                 seen_names.add(fn_name)
-                self._tool_map[fn_name] = (skill_name, action_name)
+                local_map[fn_name] = (skill_name, action_name)
                 api_tools.append({
                     "type": "function",
                     "function": {
@@ -240,6 +238,7 @@ class ReasoningEngine:
                     },
                 })
 
+        self._tool_map.update(local_map)
         return api_tools
 
     @staticmethod

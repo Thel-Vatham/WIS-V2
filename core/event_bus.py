@@ -23,6 +23,7 @@ class EventBus:
 
     def __init__(self) -> None:
         self._subscribers: Dict[str, List[EventHandler]] = {}
+        self._background_tasks: set[asyncio.Task] = set()
 
     def subscribe(self, event_name: str, handler: EventHandler) -> None:
         """Suscribe un handler a un evento por nombre."""
@@ -58,7 +59,9 @@ class EventBus:
                     # Si hay un loop corriendo, creamos una task; si no, log warning.
                     try:
                         loop = asyncio.get_running_loop()
-                        loop.create_task(handler(payload))
+                        task = loop.create_task(handler(payload))
+                        self._background_tasks.add(task)
+                        task.add_done_callback(self._on_task_done)
                     except RuntimeError:
                         logger.warning(
                             "event_bus: no async loop running for async handler on '%s'",
@@ -69,9 +72,17 @@ class EventBus:
             except Exception as exc:
                 logger.exception("Error in event handler for '%s': %s", event_name, exc)
 
+    def _on_task_done(self, task: asyncio.Task) -> None:
+        self._background_tasks.discard(task)
+        if not task.cancelled():
+            exc = task.exception()
+            if exc is not None:
+                logger.error("event_bus: unhandled exception in async event handler: %s", exc)
+
     def clear(self) -> None:
         """Limpia todos los suscriptores."""
         self._subscribers.clear()
+        self._background_tasks.clear()
 
 
 # Singleton global por conveniencia.

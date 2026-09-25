@@ -299,10 +299,12 @@ class ActionPipeline:
                 "focused_contexts": self._focused_contexts.get(session_id, {}),
                 "last_trace": self._last_trace.get(session_id, []),
             }
-            self._session_state_path.write_text(
+            tmp_path = self._session_state_path.with_suffix(".tmp")
+            tmp_path.write_text(
                 json.dumps(payload, ensure_ascii=False, default=str, indent=2),
                 encoding="utf-8",
             )
+            os.replace(tmp_path, self._session_state_path)
         except OSError as exc:
             logger.warning("Could not save cognitive session state: %s", exc)
 
@@ -312,10 +314,12 @@ class ActionPipeline:
                 return
             payload = json.loads(self._session_state_path.read_text(encoding="utf-8"))
             payload.pop(str(session_id), None)
-            self._session_state_path.write_text(
+            tmp_path = self._session_state_path.with_suffix(".tmp")
+            tmp_path.write_text(
                 json.dumps(payload, ensure_ascii=False, default=str, indent=2),
                 encoding="utf-8",
             )
+            os.replace(tmp_path, self._session_state_path)
         except (OSError, json.JSONDecodeError, TypeError) as exc:
             logger.warning("Could not delete cognitive session state: %s", exc)
 
@@ -527,7 +531,7 @@ class ActionPipeline:
             if hasattr(self.abilities, "get_schemas"):
                 tools = self.abilities.get_schemas()
 
-        event_bus.emit("pipeline.input_received", { "session_id": session_id,"text": text, "session_id": session_id})
+        event_bus.emit("pipeline.input_received", {"session_id": session_id, "text": text})
 
         # Reset del flag de cancelacion SOLO si no hay un turno vivo en esta sesion.
         # Si hay un turno en curso, este mensaje sera rechazado por el guard de
@@ -687,7 +691,10 @@ class ActionPipeline:
             elif cmd == "/ping":
                 import subprocess
                 try:
-                    p = subprocess.run(["ping", "-n", "4", args], capture_output=True, text=True)
+                    p = await asyncio.to_thread(
+                        subprocess.run, ["ping", "-n", "4", args.strip()],
+                        capture_output=True, text=True
+                    )
                     resp_text = f"Ping Results for {args}:\n{p.stdout.strip()}"
                 except Exception as e:
                     resp_text = f"Ping failed: {e}"
@@ -711,7 +718,9 @@ class ActionPipeline:
                     # Get cwd
                     cwd = await self._resolve_session_cwd(session_id)
                             
-                    p = subprocess.run(args, shell=True, capture_output=True, text=True, cwd=cwd)
+                    p = await asyncio.to_thread(
+                        subprocess.run, args, shell=True, capture_output=True, text=True, cwd=cwd
+                    )
                     output = p.stdout if p.stdout else p.stderr
                     if not output:
                         output = "Command finished with no output."
@@ -741,7 +750,7 @@ class ActionPipeline:
             elif cmd == "/sys":
                 import psutil
                 try:
-                    cpu = psutil.cpu_percent(interval=0.1)
+                    cpu = await asyncio.to_thread(psutil.cpu_percent, 0.1)
                     ram = psutil.virtual_memory()
                     disk = psutil.disk_usage('/')
                     resp_text = f"Host Telemetry:\nCPU: {cpu}%\nRAM: {ram.percent}% ({ram.used/(1024**3):.1f}GB / {ram.total/(1024**3):.1f}GB)\nDisk: {disk.percent}%"
@@ -802,11 +811,15 @@ class ActionPipeline:
                 import subprocess
                 try:
                     cwd = await self._resolve_session_cwd(session_id)
-                    # findstr /s /i "query" *.*
-                    p = subprocess.run(f'findstr /s /i "{args}" *.*', shell=True, cwd=cwd, capture_output=True, text=True)
+                    query = args.strip()
+                    p = await asyncio.to_thread(
+                        subprocess.run,
+                        ["findstr", "/s", "/i", query, "*.*"],
+                        shell=False, cwd=cwd, capture_output=True, text=True
+                    )
                     out = p.stdout.strip()
                     if not out: out = "No matches found."
-                    event_bus.emit("ui.show_log", {"content": f"$ search '{args}'\n{out}"})
+                    event_bus.emit("ui.show_log", {"content": f"$ search '{query}'\n{out}"})
                     resp_text = "Search complete. Results sent to Log Modal."
                 except Exception as e:
                     resp_text = f"Search failed: {e}"

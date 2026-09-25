@@ -157,7 +157,7 @@ class LLMClient:
                         if not line:
                             continue
                         line = line.strip()
-                        logger.info(f"LLM STREAM CHUNK: {line[:100]}")
+                        logger.debug(f"LLM STREAM CHUNK: {line[:100]}")
                         
                         # Timeout manual contra keep-alives infinitos (ej. falla en DeepSeek)
                         if time.time() - last_data_time > 45.0:

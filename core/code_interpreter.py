@@ -351,7 +351,13 @@ def run_python_code(
     if not confirmed and _requires_confirmation(assessment.level, mode):
         raise CodeConfirmationRequired(assessment.reasons, code)
 
-    from .repl_wrapper import PersistentREPL
+    try:
+        from abilities.pc.repl_wrapper import PersistentREPL
+    except ImportError:
+        try:
+            from core.repl_wrapper import PersistentREPL
+        except ImportError:
+            PersistentREPL = None
     def _truncate(text: str, limit: int = 4000) -> str:
         if not text or len(text) <= limit:
             return text
