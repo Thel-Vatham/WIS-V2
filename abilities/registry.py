@@ -243,6 +243,31 @@ class AbilityRegistry:
 
         action = action_norm or action
 
+        # FIX comunicacion: si el 'skill' explicito soporta la accion, tiene prioridad
+        # absoluta y NO se re-busca por heuristica (evita que 'set_volume' del robot
+        # caiga en la habilidad 'system' del PC). Tambien acepta alias 'nao'.
+        if skill:
+            skill_norm = skill.strip().lower()
+            if skill_norm == "nao":
+                skill_norm = "nao_robot"
+            if self.has(skill_norm):
+                target_ability = self._abilities[skill_norm]
+                # Validar que la accion exista en esa habilidad; si no, error claro.
+                supported = [
+                    a.get("action", "").lower()
+                    for a in target_ability.get_schema()
+                    if isinstance(a, dict)
+                ]
+                if action_norm and action_norm not in supported and skill_norm not in action_norm:
+                    return {
+                        "success": False,
+                        "message": (
+                            f"La habilidad '{skill_norm}' no soporta la accion "
+                            f"'{action_norm}'. Acciones validas: {supported}"
+                        ),
+                    }
+                return await target_ability.execute(action_norm or action, params_dict)
+
         if skill and self.has(skill):
             target_ability = self._abilities[skill]
         else:

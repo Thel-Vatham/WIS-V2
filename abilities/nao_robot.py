@@ -49,6 +49,31 @@ DEFAULT_IP = "172.20.10.9"
 DEFAULT_PORT = 9559
 
 
+def _jsonable(value: Any, _depth: int = 0) -> Any:
+    """Reduce un valor arbitrario a algo serializable en JSON.
+
+    WIS inyecta parametros internos (eventos de cancelacion, ids de sesion,
+    objetos de abilities) que rompian `json.dumps` con
+    "Object of type Event is not JSON serializable" y abortaban la accion
+    COMPLETA con `write_failed`. Aqui se degradan a str en lugar de tumbar
+    el envio, para que el robot ejecute la accion de todos modos.
+    """
+    if _depth > 6:
+        return str(value)
+    if value is None or isinstance(value, (bool, int, float, str)):
+        return value
+    if isinstance(value, dict):
+        return {str(k): _jsonable(v, _depth + 1) for k, v in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_jsonable(v, _depth + 1) for v in value]
+    if isinstance(value, (bytes, bytearray)):
+        try:
+            return value.decode("utf-8", "replace")
+        except Exception:  # noqa: BLE001
+            return repr(value)
+    return str(value)
+
+
 class NAORobotAbility(Ability):
     """Control and interact with a NAO robot through the NAOqi SDK."""
 
@@ -116,9 +141,14 @@ class NAORobotAbility(Ability):
         with self._lock:
             if not self._start_bridge():
                 return {"success": False, "error": "bridge_start_failed"}
-            payload = {"action": action, "params": params}
+            clean_params = {k: v for k, v in params.items() if not k.startswith("_")}
+            payload = {"action": action, "params": _jsonable(clean_params)}
             try:
-                self._proc.stdin.write(json.dumps(payload) + "\n")
+                encoded = json.dumps(payload) + "\n"
+            except Exception as exc:  # noqa: BLE001
+                return {"success": False, "error": "encode_failed: %s" % exc}
+            try:
+                self._proc.stdin.write(encoded)
                 self._proc.stdin.flush()
             except Exception as exc:  # noqa: BLE001
                 return {"success": False, "error": "write_failed: %s" % exc}
@@ -144,7 +174,7 @@ class NAORobotAbility(Ability):
             {"action": "move", "description": "Move with velocity", "params": {"x": "float", "y": "float", "theta": "float"}},
             {"action": "walk_to", "description": "Walk to absolute coordinates", "params": {"x": "float", "y": "float", "theta": "float"}},
             {"action": "stop_move", "description": "Stop current movement", "params": {}},
-            {"action": "posture", "description": "Go to predefined posture", "params": {"name": "str (Stand|Sit|Crouch|LyingBack)"}},
+            {"action": "posture", "description": "Go to predefined posture", "params": {"name": "str (Stand|Sit|Crouch|LyingBack|StandInit)"}},
             {"action": "set_angles", "description": "Set specific joint angles", "params": {"names": "list", "angles": "list", "speed": "float?"}},
             {"action": "leds", "description": "Set LED colors", "params": {"color": "str hex", "led": "str?"}},
             {"action": "leds_off", "description": "Turn off all LEDs", "params": {}},
@@ -154,6 +184,26 @@ class NAORobotAbility(Ability):
             {"action": "status", "description": "Check connection status", "params": {}},
             {"action": "kindergarten_start", "description": "Start autonomous interactive teacher mode", "params": {"topic": "str?"}},
             {"action": "kindergarten_stop", "description": "Stop teacher mode", "params": {}},
+            # --- acciones soportadas por el bridge que antes no se anunciaban
+            #     al LLM: si no aparecen en el schema, el agente nunca las
+            #     invoca porque no sabe que existen. ---
+            {"action": "animated_say", "description": "Speak with expressive body gestures", "params": {"text": "str", "language": "str?"}},
+            {"action": "capture_b64", "description": "Capture a camera frame as base64 (for vision analysis)", "params": {"resolution": "int? (0=QQVGA,1=QVGA,2=VGA)"}},
+            {"action": "get_joints", "description": "Read current joint names and angles", "params": {}},
+            {"action": "set_stiffness", "description": "Enable/disable motor stiffness", "params": {"name": "str (Body|Head|...) ", "stiffness": "float (0.0-1.0)"}},
+            {"action": "get_sensors", "description": "Read tactile sensors, sonar and accelerometer", "params": {}},
+            {"action": "get_temperature", "description": "Read motor temperatures", "params": {"joint": "str? (default Body)"}},
+            {"action": "get_memory_key", "description": "Read a value from NAOqi ALMemory", "params": {"key": "str"}},
+            {"action": "set_memory_key", "description": "Write a value into NAOqi ALMemory", "params": {"key": "str", "value": "any"}},
+            {"action": "list_behaviors", "description": "List behavior packages installed on the robot", "params": {}},
+            {"action": "run_behavior", "description": "Run an installed behavior by name", "params": {"name": "str"}},
+            {"action": "stop_behavior", "description": "Stop a running behavior by name", "params": {"name": "str"}},
+            # --- audio / diagnostico: implementados en el bridge pero invisibles
+            #     al LLM hasta ahora (mismo fallo que las acciones anteriores). ---
+            {"action": "diag", "description": "Per-service connection diagnostic: which NAOqi services are available and which failed", "params": {}},
+            {"action": "set_volume", "description": "Set the robot speaker output volume (0-100)", "params": {"level": "int (0-100)"}},
+            {"action": "get_volume", "description": "Read the robot speaker output volume (0-100)", "params": {}},
+            {"action": "get_mic_level", "description": "Read microphone energy on the 4 capsules to check whether NAO is actually hearing, with a normalized level and a 'hearing' boolean", "params": {"reference": "float? (default 8000.0)", "threshold": "float? (default 0.05)"}},
         ]
 
     async def execute(self, action: str, params: Dict[str, Any] = None) -> Dict[str, Any]:
@@ -177,7 +227,8 @@ class NAORobotAbility(Ability):
             return await asyncio.to_thread(self._send, "kindergarten_stop")
         if action == "kindergarten_start":
             return await asyncio.to_thread(self._send, "kindergarten_start", topic=params.get("topic", ""))
-        return await asyncio.to_thread(self._send, action, **params)
+        clean_params = {k: v for k, v in params.items() if not k.startswith("_")}
+        return await asyncio.to_thread(self._send, action, **clean_params)
 
     def _stop_bridge(self) -> None:
         if self._proc and self._proc.poll() is None:

@@ -14,6 +14,7 @@ This single Ability gives the LLM full desktop AGI capabilities.
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any
 
 from abilities.base import Ability
@@ -44,8 +45,28 @@ def _get_app_launcher():
     return AppLauncher()
 
 def _get_process_mgr():
-    from .process import ProcessManager
-    return ProcessManager()
+    # La clase real es `ProcessOps` (abilities/pc/process.py). Antes se importaba
+    # `ProcessManager`, que NO existe: el ImportError dejaba `self._proc = None`
+    # y las tres acciones del esquema (list_processes / kill_process /
+    # wait_for_process) fallaban siempre con "'NoneType' object has no attribute".
+    from .process import ProcessOps
+    return ProcessOps()
+
+
+def _protected_pids() -> set:
+    """PIDs cuyo cierre mataria a WIS (propio y del padre).
+
+    Se reutiliza el guard canonico de `abilities.system` para que exista una
+    sola definicion de "proceso protegido" en todo el runtime.
+    """
+    try:
+        from abilities.system import _protected_pids as _canonical
+
+        return _canonical()
+    except Exception:  # noqa: BLE001
+        import os
+
+        return {os.getpid()}
 
 
 class AdvancedDesktopAbility(Ability):
@@ -245,11 +266,14 @@ class AdvancedDesktopAbility(Ability):
                 "description": "Find a UI element on screen by visible text using SOM.",
                 "params": {"text": "Text or label to search for"}
             },
-            # ── ProcessManager ────────────────────────────────────────────────
+            # ── ProcessOps ────────────────────────────────────────────────────
             {
                 "action": "list_processes",
-                "description": "List running processes with PID, name, CPU%, and memory.",
-                "params": {"filter_name": "(optional) filter by process name substring"}
+                "description": "List running processes with PID, CPU%, and memory.",
+                "params": {
+                    "filter_name": "(optional) filter by process name substring",
+                    "limit": "(optional) max results, default 50",
+                }
             },
             {
                 "action": "kill_process",
@@ -394,23 +418,75 @@ class AdvancedDesktopAbility(Ability):
                 result = sv.find_text(text)
                 return {"success": bool(result), "data": result, "message": f"Found '{text}'" if result else f"'{text}' not found"}
 
-            # ── ProcessManager ─────────────────────────────────────────────────
+            # ── ProcessOps ─────────────────────────────────────────────────────
             elif action == "list_processes":
-                filter_name = params.get("filter_name", "")
-                procs = self.proc.list_processes(filter_name=filter_name)
-                return {"success": True, "data": procs, "message": f"{len(procs)} processes"}
+                filter_name = str(params.get("filter_name") or "").strip()
+                limit = params.get("limit")
+                try:
+                    limit = int(limit) if limit not in (None, "") else 50
+                except (TypeError, ValueError):
+                    limit = 50
+                procs = self.proc.list(name_filter=filter_name, limit=limit)
+                return {
+                    "success": True,
+                    "data": procs,
+                    "message": f"{len(procs)} processes"
+                    + (f" matching '{filter_name}'" if filter_name else ""),
+                }
 
             elif action == "kill_process":
                 pid = params.get("pid")
-                name = params.get("name", "")
-                result = self.proc.kill(pid=pid, name=name)
-                return {"success": result.get("success", False), "message": result.get("message", "")}
+                name = str(params.get("name") or "").strip()
+
+                if pid not in (None, ""):
+                    try:
+                        pid_int = int(pid)
+                    except (TypeError, ValueError):
+                        return {"success": False, "message": f"PID invalido: {pid!r}"}
+                    if pid_int in _protected_pids():
+                        return {
+                            "success": False,
+                            "data": {"blocked_by": "self_protection"},
+                            "message": (
+                                f"Bloqueado por autoproteccion: el PID {pid_int} es el de WIS. "
+                                "Cerrarlo mataria el runtime y dejaria el turno muerto."
+                            ),
+                        }
+                    # ProcessOps.kill(pid) es POSICIONAL y devuelve un str.
+                    msg = self.proc.kill(pid_int)
+                    return {"success": True, "data": {"pid": pid_int, "result": msg}, "message": msg}
+
+                if not name:
+                    return {"success": False, "message": "Necesito 'pid' o 'name' para cerrar un proceso."}
+
+                # ProcessOps.kill_by_name(name) devuelve un str.
+                msg = self.proc.kill_by_name(name)
+                return {"success": True, "data": {"name": name, "result": msg}, "message": msg}
 
             elif action == "wait_for_process":
-                name = params.get("name", "")
-                timeout = float(params.get("timeout", 10))
-                result = self.proc.wait_for(name=name, timeout=timeout)
-                return {"success": result, "message": f"Process '{name}' {'appeared' if result else 'not found within timeout'}"}
+                name = str(params.get("name") or "").strip().lower()
+                if not name:
+                    return {"success": False, "message": "Falta 'name'."}
+                try:
+                    timeout = float(params.get("timeout", 10) or 10)
+                except (TypeError, ValueError):
+                    timeout = 10.0
+                # ProcessOps no tiene wait_for(): se implementa por sondeo.
+                deadline = time.time() + max(0.0, timeout)
+                while True:
+                    found = self.proc.list(name_filter=name, limit=None)
+                    if found:
+                        return {
+                            "success": True,
+                            "data": found,
+                            "message": f"Proceso '{name}' detectado ({len(found)}).",
+                        }
+                    if time.time() >= deadline:
+                        return {
+                            "success": False,
+                            "message": f"Proceso '{name}' no aparecio en {timeout:g}s.",
+                        }
+                    time.sleep(0.5)
 
             return {"success": False, "message": f"Unknown action: {action}"}
 

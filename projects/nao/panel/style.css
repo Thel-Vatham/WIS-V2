@@ -347,6 +347,22 @@ select {
     gap: 15px;
 }
 
+.cam-tweaks {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 18px;
+    margin-top: 16px;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+}
+.cam-tweaks label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+}
+.cam-tweaks input[type=checkbox] { accent-color: var(--primary); }
+
 /* Autonomous */
 .auto-card {
     text-align: center;
@@ -375,3 +391,103 @@ select {
 input[type=range] { width: 100%; accent-color: var(--primary); }
 
 .mt-4 { margin-top: 24px; }
+.mt-2 { margin-top: 12px; }
+
+/* Audio: speaker volume */
+.volume-row {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+}
+.volume-row i { color: var(--text-muted); }
+.volume-row input[type=range] { flex: 1; }
+.volume-row input[type=range]::-webkit-slider-thumb { cursor: grab; }
+.vol-value {
+    min-width: 56px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+    color: var(--primary);
+}
+
+.hint {
+    margin-top: 12px;
+    font-size: 0.82rem;
+    line-height: 1.4;
+    color: var(--text-muted);
+}
+.hint.error { color: #fca5a5; }
+.hint.ok { color: #6ee7b7; }
+
+/* Audio: microphones */
+.mic-status-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 16px;
+}
+.mic-status-row .hint { margin-top: 0; }
+
+.pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 12px;
+    border-radius: 999px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    background: rgba(255,255,255,0.06);
+    color: var(--text-muted);
+    border: 1px solid var(--border);
+}
+.pill.ok { background: rgba(16,185,129,0.18); color: #6ee7b7; border-color: rgba(16,185,129,0.5); }
+.pill.idle { background: rgba(148,163,184,0.12); }
+.pill.fail { background: rgba(239,68,68,0.18); color: #fca5a5; border-color: rgba(239,68,68,0.5); }
+
+.mic-bars {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+.mic-bar {
+    display: grid;
+    grid-template-columns: 56px 1fr 64px;
+    align-items: center;
+    gap: 12px;
+    font-size: 0.85rem;
+}
+.mic-bar > span { color: var(--text-muted); }
+.mic-bar code {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-muted);
+    font-size: 0.78rem;
+}
+
+.meter {
+    height: 10px;
+    background: rgba(255,255,255,0.08);
+    border-radius: 999px;
+    overflow: hidden;
+}
+.meter-fill {
+    height: 100%;
+    width: 0%;
+    background: var(--primary);
+    border-radius: 999px;
+    transition: width 0.25s ease, background 0.25s ease;
+}
+.meter.active .meter-fill { background: var(--success); }
+.meter.mini { flex: 1; height: 8px; }
+
+/* Audio: mini indicator in the sidebar */
+.mic-mini {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 10px;
+    font-size: 0.72rem;
+    color: var(--text-muted);
+}
+.mic-mini i { transition: color 0.25s; }
+.mic-mini span { min-width: 34px; text-align: right; font-variant-numeric: tabular-nums; }

@@ -30,7 +30,7 @@
         <div class="boot-content">
             <img src="wise.png" class="boot-logo" alt="WIS">
             <div class="boot-mark">W·I·S</div>
-            <div class="boot-subtitle">Agente Autonomo Industrial &mdash; v3.0</div>
+            <div class="boot-subtitle">Cognitive Autonomus Kernel CAK &mdash; v3.0</div>
             <div class="boot-log-area" id="boot-log"></div>
             <div class="boot-bar">
                 <div id="boot-fill" class="boot-fill"></div>
@@ -50,9 +50,11 @@
             </div>
             <div class="tb-center online" id="tb-status">SYSTEM ONLINE</div>
             <div class="tb-right">
-                <button class="hud-pill hud-pill-btn yellow" id="pill-mode" title="Click para cambiar modo (Privileged / Secure)">PRIVILEGED</button>
+                <button class="hud-pill hud-pill-btn yellow" id="pill-mode"
+                    title="Click para cambiar modo (Privileged / Secure)">PRIVILEGED</button>
                 <span class="tb-divider"></span>
-                <button class="tb-btn tb-toggle-btn" id="btn-toggle-right" title="Ocultar / Mostrar Panel Derecho (Ctrl+])">Sidebar</button>
+                <button class="tb-btn tb-toggle-btn" id="btn-toggle-right"
+                    title="Ocultar / Mostrar Panel Derecho (Ctrl+])">Sidebar</button>
                 <span class="tb-divider"></span>
                 <button class="tb-btn" id="btn-tts" title="Toggle TTS">Audio</button>
                 <button class="tb-btn" id="btn-new-window" title="Open render window">Render</button>
@@ -72,19 +74,29 @@
                     <div class="terminal-dock-tabs" id="terminal-dock-tabs"></div>
                     <div class="terminal-dock-controls ml-auto">
                         <div class="layout-picker-wrapper" id="layout-picker-wrapper">
-                            <button class="tb-btn layout-picker-btn" id="btn-layout-picker" type="button" title="Distribución de cuadrícula (Layout)">
+                            <button class="tb-btn layout-picker-btn" id="btn-layout-picker" type="button"
+                                title="Distribución de cuadrícula (Layout)">
                                 <span id="current-layout-icon">⊞</span>
                                 <span id="current-layout-label">2x2</span>
                                 <span class="layout-chevron">▾</span>
                             </button>
                             <div class="layout-dropdown hidden" id="layout-dropdown">
-                                <div class="layout-option" data-layout="1x1" title="1x1: Foco en pestaña individual"><span class="layout-opt-icon">🗖</span> 1x1 Foco</div>
-                                <div class="layout-option" data-layout="1x2" title="1x2: 2 Columnas verticales"><span class="layout-opt-icon">❚❚</span> 1x2 Columnas</div>
-                                <div class="layout-option" data-layout="2x1" title="2x1: 2 Filas horizontales"><span class="layout-opt-icon">〓</span> 2x1 Filas</div>
-                                <div class="layout-option active" data-layout="2x2" title="2x2: Cuadrícula de 4 cuadrantes"><span class="layout-opt-icon">⊞</span> 2x2 Cuadrícula</div>
-                                <div class="layout-option" data-layout="3x3" title="3x3: Cuadrícula de 9"><span class="layout-opt-icon">▤</span> 3x3 Cuadrícula</div>
-                                <div class="layout-option" data-layout="4x4" title="4x4: Cuadrícula de 16"><span class="layout-opt-icon">▦</span> 4x4 Cuadrícula</div>
-                                <div class="layout-option" data-layout="auto" title="Auto: Adaptable según número de ventanas"><span class="layout-opt-icon">❖</span> Auto Dinámico</div>
+                                <div class="layout-option" data-layout="1x1" title="1x1: Foco en pestaña individual">
+                                    <span class="layout-opt-icon">🗖</span> 1x1 Foco</div>
+                                <div class="layout-option" data-layout="1x2" title="1x2: 2 Columnas verticales"><span
+                                        class="layout-opt-icon">❚❚</span> 1x2 Columnas</div>
+                                <div class="layout-option" data-layout="2x1" title="2x1: 2 Filas horizontales"><span
+                                        class="layout-opt-icon">〓</span> 2x1 Filas</div>
+                                <div class="layout-option active" data-layout="2x2"
+                                    title="2x2: Cuadrícula de 4 cuadrantes"><span class="layout-opt-icon">⊞</span> 2x2
+                                    Cuadrícula</div>
+                                <div class="layout-option" data-layout="3x3" title="3x3: Cuadrícula de 9"><span
+                                        class="layout-opt-icon">▤</span> 3x3 Cuadrícula</div>
+                                <div class="layout-option" data-layout="4x4" title="4x4: Cuadrícula de 16"><span
+                                        class="layout-opt-icon">▦</span> 4x4 Cuadrícula</div>
+                                <div class="layout-option" data-layout="auto"
+                                    title="Auto: Adaptable según número de ventanas"><span
+                                        class="layout-opt-icon">❖</span> Auto Dinámico</div>
                             </div>
                         </div>
                         <button class="tb-btn accent" id="btn-new-term" title="New Terminal (Ctrl+T)">+</button>
@@ -107,7 +119,8 @@
                         <div class="terminal-drag-handle">≡</div>
                         <span class="terminal-title">Terminal</span>
                         <div class="terminal-actions">
-                            <button class="tb-btn" action="popout" title="Desacoplar en ventana externa (Popout)">⧉</button>
+                            <button class="tb-btn" action="popout"
+                                title="Desacoplar en ventana externa (Popout)">⧉</button>
                             <button class="tb-btn" action="float" title="Desanclar / Ventana flotante">🗗</button>
                             <button class="tb-btn" action="minimize" title="Minimize to dock">_</button>
                             <button class="tb-btn danger" action="close" title="Close">X</button>
@@ -122,11 +135,12 @@
                     <div style="position: relative;">
                         <div class="command-autocomplete hidden"></div>
                         <div class="input-row">
-                        <textarea class="terminal-input" placeholder="Speak your intent or command..." rows="1" autocomplete="off" spellcheck="false"></textarea>
-                        <button class="tb-btn" action="mic" title="Voice input">Mic</button>
-                        <button class="tb-btn" action="upload" title="Upload file">Attach</button>
-                        <button class="tb-btn accent" action="send" title="Send">Send</button>
-                    </div>
+                            <textarea class="terminal-input" placeholder="Speak your intent or command..." rows="1"
+                                autocomplete="off" spellcheck="false"></textarea>
+                            <button class="tb-btn" action="mic" title="Voice input">Mic</button>
+                            <button class="tb-btn" action="upload" title="Upload file">Attach</button>
+                            <button class="tb-btn accent" action="send" title="Send">Send</button>
+                        </div>
                     </div>
                 </main>
             </template>
@@ -140,7 +154,8 @@
             <aside class="sidebar right-sidebar" id="right-sidebar">
                 <div class="sidebar-top-bar">
                     <span class="sidebar-top-title">ACTIVE TASKS</span>
-                    <button class="mini-btn close-sidebar-btn" id="btn-close-right" title="Ocultar panel derecho (Ctrl+])">Hide</button>
+                    <button class="mini-btn close-sidebar-btn" id="btn-close-right"
+                        title="Ocultar panel derecho (Ctrl+])">Hide</button>
                 </div>
                 <section class="panel project-panel" data-collapsible>
                     <div class="panel-hd">
@@ -198,12 +213,14 @@
     </div>
 
     <div id="log-modal" class="modal-overlay hidden">
-        <div class="modal-card" style="max-width: 800px; width: 90%; max-height: 80vh; display: flex; flex-direction: column;">
+        <div class="modal-card"
+            style="max-width: 800px; width: 90%; max-height: 80vh; display: flex; flex-direction: column;">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
                 <h3 style="margin: 0; color: var(--cyan);">Task Logs Terminal</h3>
                 <button class="mini-btn danger" id="btn-log-close">Close</button>
             </div>
-            <pre id="log-output" style="background: #000; color: #0f0; padding: 10px; border-radius: 4px; overflow-y: auto; flex: 1; font-family: monospace; font-size: 11px; white-space: pre-wrap; margin: 0; border: 1px solid var(--border-color);"></pre>
+            <pre id="log-output"
+                style="background: #000; color: #0f0; padding: 10px; border-radius: 4px; overflow-y: auto; flex: 1; font-family: monospace; font-size: 11px; white-space: pre-wrap; margin: 0; border: 1px solid var(--border-color);"></pre>
         </div>
     </div>
 

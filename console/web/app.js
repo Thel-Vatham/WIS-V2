@@ -1076,13 +1076,13 @@ window.startVoiceInput = async function() {
     const term = window.terminalManager.getActiveTerminal();
     if (!term) return;
     
-    term.appendSystemMessage("Listening to hardware microphone (5s)...");
+    term.appendSystemMessage("🎤 Escuchando micrófono (5s)... ¡Habla ahora!");
 
     try {
         const res = await fetch("/api/listen", {
             method: "POST",
             headers: getAuthHeaders(),
-            body: JSON.stringify({ language: "en-US", timeout: 5.0 }),
+            body: JSON.stringify({ language: "es-ES", timeout: 5.0 }),
         });
         const data = await res.json();
 
@@ -1095,10 +1095,10 @@ window.startVoiceInput = async function() {
                 }
             }
         } else {
-            term.appendSystemMessage(data.message || "No speech detected.");
+            term.appendSystemMessage(data.message || "No se detectó voz.");
         }
     } catch (e) {
-        term.appendSystemMessage("Voice input error: " + e.message);
+        term.appendSystemMessage("Error de entrada de voz: " + e.message);
     }
 }
 

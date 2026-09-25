@@ -807,8 +807,8 @@ def create_app(
         body = {}
         try:
             body = await req.json()
-        except:
-            pass
+        except Exception as exc:
+            logger.debug("approve_action: empty or invalid JSON body: %s", exc)
         session_id = body.get("session_id", "default")
         core = get_core()
         if core.praxis and hasattr(core.praxis, 'approve_action'):
@@ -820,8 +820,8 @@ def create_app(
         body = {}
         try:
             body = await req.json()
-        except:
-            pass
+        except Exception as exc:
+            logger.debug("deny_action: empty or invalid JSON body: %s", exc)
         session_id = body.get("session_id", "default")
         core = get_core()
         if core.praxis and hasattr(core.praxis, 'deny_action'):
@@ -1058,8 +1058,16 @@ def create_app(
         return {"token": _auth_token or "", "auth_required": bool(_auth_token)}
 
     @app.post("/api/listen")
-    async def listen_endpoint(_: None = Depends(require_auth)) -> Dict[str, Any]:
-        """Escucha 5s en el microfono del hardware local y envia lo transcrito al LLM."""
+    async def listen_endpoint(req: Request, _: None = Depends(require_auth)) -> Dict[str, Any]:
+        """Escucha en el microfono del hardware local (con soporte de español) y envia lo transcrito al LLM."""
+        body = {}
+        try:
+            body = await req.json()
+        except Exception:
+            pass
+        language = str(body.get("language") or "es-ES")
+        timeout = float(body.get("timeout") or 5.0)
+
         core = get_core()
         if not core or core.praxis is None:
             raise HTTPException(status_code=500, detail="WIS core no disponible.")
@@ -1074,7 +1082,7 @@ def create_app(
         if not listen_ability:
             raise HTTPException(status_code=400, detail="Habilidad 'listen' no registrada en el robot.")
 
-        res = await _maybe_await(listen_ability.execute("listen_once", {"timeout": 5.0}))
+        res = await _maybe_await(listen_ability.execute("listen_once", {"timeout": timeout, "language": language}))
         if not res.get("success"):
             return {"success": False, "message": res.get("message", "No se pudo transcribir audio.")}
 

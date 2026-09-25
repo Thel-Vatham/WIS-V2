@@ -61,11 +61,18 @@ python projects\nao\panel_server.py
 Luego abre en tu navegador: [http://localhost:7860](http://localhost:7860)
 
 ### Modo Autónomo "Profesor de Jardín"
-Para que NAO opere autónomamente razonando mediante el pipeline LLM de WIS:
+Para que NAO opere autónomamente escuchando con voz y razonando mediante WIS:
 ```powershell
-python projects\nao\kindergarten_teacher.py
+# Escuchar por el micrófono del PC (Recomendado: alta fidelidad en español con STT)
+python projects\nao\kindergarten_teacher.py --mic pc
+
+# Escuchar por los micrófonos integrados de la cabeza de NAO
+python projects\nao\kindergarten_teacher.py --mic nao
+
+# Modo silencioso / teclado (para pruebas y depuración)
+python projects\nao\kindergarten_teacher.py --mic cli
 ```
-(Asegúrate de que `panel_server.py` esté corriendo primero, ya que usa su API REST).
+(Si usas `--mic nao` o quieres controlar movimientos en el robot físico, asegúrate de que `panel_server.py` esté corriendo).
 
 ### Pruebas directas (con el robot encendido)
 ```powershell

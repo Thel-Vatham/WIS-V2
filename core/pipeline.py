@@ -14,6 +14,7 @@ import asyncio
 import inspect
 import json
 import logging
+import os
 import re
 import time
 import uuid
@@ -36,6 +37,11 @@ PATH_NEW = "new"
 
 DEFAULT_MAX_STEPS = 10
 STEP_TIMEOUT_S = 60
+
+# Racha de pasos consecutivos en los que TODO lo ejecutado fueron re-lecturas
+# identicas. Con el log real (28 `status` iguales, 61 lecturas por escritura) el
+# limite de 50 pasos se consumia entero sin avanzar; aqui se corta a los 4.
+_MAX_REDUNDANT_STEPS = 4
 
 AbilityFn = Callable[[Dict[str, Any]], Any]
 
@@ -108,6 +114,21 @@ def _is_repeatable_call(call: Dict[str, Any]) -> bool:
     return bool(action) and bool(_READ_ONLY_ACTION_RE.match(action))
 
 
+# Nudge especifico para el bucle de re-verificacion (distinto del de promesa:
+# aqui SI hay tool calls, pero no aportan nada nuevo).
+_NO_PROGRESS_NUDGE = (
+    "\n\n[NUDGE - SIN PROGRESO: ESTAS REPITIENDO LECTURAS]\n"
+    "Los ultimos pasos repitieron llamadas de LECTURA identicas (mismos "
+    "parametros). Repetir una lectura NO aporta informacion nueva: consume "
+    "pasos y el turno terminara sin resultado.\n"
+    "Haz UNA de estas dos cosas AHORA, sin volver a leer lo mismo:\n"
+    "  1. Ejecuta la accion que CAMBIA el estado (escribir / parchear / "
+    "invocar la herramienta que resuelve el objetivo) usando lo que YA sabes; o\n"
+    "  2. Si el objetivo ya esta cumplido y verificado, responde con tu "
+    "respuesta final SIN tool calls.\n"
+)
+
+
 def _build_repair_prompt(text: str, step: int, category: str, error_desc: str) -> str:
     """Prompt de auto-reparacion, escalado segun la naturaleza del fallo.
 
@@ -151,6 +172,12 @@ class TurnContext:
     results: list[Dict[str, Any]] = field(default_factory=list)
     trace: list[Dict[str, Any]] = field(default_factory=list)
     executed_calls: set[str] = field(default_factory=set)
+    # Huellas de las lecturas ya realizadas en ESTE turno. Permite distinguir
+    # "avanzar" de "re-verificar lo mismo": el log mostraba hasta 28 `status`
+    # identicos seguidos y una racha de 39 `code_view_file` consecutivos.
+    seen_reads: set[str] = field(default_factory=set)
+    # Pasos consecutivos sin progreso (solo re-lecturas identicas).
+    redundant_steps: int = 0
 
 
 class ActionPipeline:
@@ -303,6 +330,67 @@ class ActionPipeline:
         y se perdia por completo al reiniciar WIS.
         """
         return bool(str(session_id or "").strip())
+
+    # ---- Console slash-command helpers ------------------------------------
+
+    def _projects_root(self) -> str:
+        """Ruta absoluta de <workspace>/projects."""
+        return os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "projects"
+        )
+
+    async def _resolve_session_cwd(self, session_id: str) -> str:
+        """Devuelve el directorio de trabajo de una sesion de consola.
+
+        `terminal_list` devuelve una lista de DICTS
+        ({name, cwd, alive, persistent, restart_count}), NO de strings. El codigo
+        antiguo de slash-commands hacia `t.startswith(session_id)` sobre cada
+        elemento y por eso reventaba con:
+            'dict' object has no attribute 'startswith'
+        """
+        default_cwd = self._projects_root()
+        cwd = default_cwd
+        project_cwd = os.path.join(default_cwd, session_id)
+        if os.path.isdir(project_cwd):
+            cwd = project_cwd
+
+        if not hasattr(self.abilities, "execute"):
+            return cwd
+
+        try:
+            res = await self.abilities.execute(
+                "persistent_terminal", "terminal_list", {}
+            )
+        except Exception as exc:
+            logger.debug("terminal_list unavailable while resolving cwd: %s", exc)
+            return cwd
+
+        prefix_match = None
+        for entry in (res or {}).get("terminals", []) or []:
+            if isinstance(entry, dict):
+                name = str(entry.get("name", ""))
+                entry_cwd = entry.get("cwd")
+            else:
+                # Compatibilidad con el formato antiguo: "name (cwd)"
+                name = str(entry)
+                entry_cwd = ""
+                if "(" in name and name.endswith(")"):
+                    head, _, tail = name.partition("(")
+                    name = head.strip()
+                    entry_cwd = tail[:-1].strip()
+            if not name:
+                continue
+            if name == session_id:
+                if entry_cwd:
+                    cwd = str(entry_cwd)
+                break
+            if prefix_match is None and name.startswith(session_id) and entry_cwd:
+                prefix_match = str(entry_cwd)
+        else:
+            if prefix_match:
+                cwd = prefix_match
+
+        return cwd
 
     # ---- Approval API (called from server.py) -----------------------------
 
@@ -529,8 +617,24 @@ class ActionPipeline:
                 
             elif cmd == "/swarm":
                 if hasattr(self.abilities, "execute"):
-                    res = await self.abilities.execute("persistent_terminal", "terminal_list", {})
-                    resp_text = "Swarm Status:\n" + str(res.get("terminals", []))
+                    try:
+                        res = await self.abilities.execute("persistent_terminal", "terminal_list", {})
+                        terminals = res.get("terminals", []) or []
+                        if terminals:
+                            lines = []
+                            for t in terminals:
+                                if isinstance(t, dict):
+                                    lines.append(
+                                        f"- {t.get('name')} @ {t.get('cwd')} "
+                                        f"(alive={t.get('alive')}, persistent={t.get('persistent')})"
+                                    )
+                                else:
+                                    lines.append(f"- {t}")
+                            resp_text = "Swarm Status:\n" + "\n".join(lines)
+                        else:
+                            resp_text = "Swarm Status: no active terminals."
+                    except Exception as e:
+                        resp_text = f"Swarm Status failed: {e}"
                 else:
                     resp_text = "Swarm Status unavailable."
 
@@ -591,20 +695,7 @@ class ActionPipeline:
             elif cmd == "/list":
                 import os
                 try:
-                    res = await self.abilities.execute("persistent_terminal", "terminal_list", {})
-                    # Find cwd of the current session
-                    terminals = res.get("terminals", [])
-                    default_cwd = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "projects")
-                    cwd = default_cwd
-                    project_cwd = os.path.join(default_cwd, session_id)
-                    if os.path.exists(project_cwd) and os.path.isdir(project_cwd):
-                        cwd = project_cwd
-                    for t in terminals:
-                        if t.startswith(session_id):
-                            parts = t.split("(")
-                            if len(parts) > 1:
-                                cwd = parts[1].replace(")", "").strip()
-                            break
+                    cwd = await self._resolve_session_cwd(session_id)
                     target_dir = os.path.join(cwd, args.strip()) if args and args.strip() else cwd
                     if os.path.exists(target_dir) and os.path.isdir(target_dir):
                         files = os.listdir(target_dir)
@@ -618,18 +709,7 @@ class ActionPipeline:
                 import subprocess, os
                 try:
                     # Get cwd
-                    res = await self.abilities.execute("persistent_terminal", "terminal_list", {})
-                    default_cwd = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "projects")
-                    cwd = default_cwd
-                    project_cwd = os.path.join(default_cwd, session_id)
-                    if os.path.exists(project_cwd) and os.path.isdir(project_cwd):
-                        cwd = project_cwd
-                    for t in res.get("terminals", []):
-                        if t.startswith(session_id):
-                            parts = t.split("(")
-                            if len(parts) > 1:
-                                cwd = parts[1].replace(")", "").strip()
-                            break
+                    cwd = await self._resolve_session_cwd(session_id)
                             
                     p = subprocess.run(args, shell=True, capture_output=True, text=True, cwd=cwd)
                     output = p.stdout if p.stdout else p.stderr
@@ -644,13 +724,8 @@ class ActionPipeline:
             elif cmd == "/open":
                 import os
                 try:
-                    res = await self.abilities.execute("persistent_terminal", "terminal_list", {})
-                    default_cwd = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "projects")
-                    cwd = default_cwd
-                    for t in res.get("terminals", []):
-                        if t.startswith(session_id) and "(" in t:
-                            cwd = t.split("(")[1].replace(")", "").strip()
-                            break
+                    default_cwd = self._projects_root()
+                    cwd = await self._resolve_session_cwd(session_id)
                             
                     full_path = os.path.join(cwd, args)
                     if os.path.exists(full_path):
@@ -676,13 +751,7 @@ class ActionPipeline:
             elif cmd == "/focus":
                 import os
                 try:
-                    res = await self.abilities.execute("persistent_terminal", "terminal_list", {})
-                    default_cwd = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "projects")
-                    cwd = default_cwd
-                    for t in res.get("terminals", []):
-                        if t.startswith(session_id) and "(" in t:
-                            cwd = t.split("(")[1].replace(")", "").strip()
-                            break
+                    cwd = await self._resolve_session_cwd(session_id)
                     full_path = os.path.join(cwd, args)
                     if os.path.exists(full_path):
                         with open(full_path, "r", encoding="utf-8") as f:
@@ -732,13 +801,7 @@ class ActionPipeline:
             elif cmd == "/search":
                 import subprocess
                 try:
-                    res = await self.abilities.execute("persistent_terminal", "terminal_list", {})
-                    default_cwd = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "projects")
-                    cwd = default_cwd
-                    for t in res.get("terminals", []):
-                        if t.startswith(session_id) and "(" in t:
-                            cwd = t.split("(")[1].replace(")", "").strip()
-                            break
+                    cwd = await self._resolve_session_cwd(session_id)
                     # findstr /s /i "query" *.*
                     p = subprocess.run(f'findstr /s /i "{args}" *.*', shell=True, cwd=cwd, capture_output=True, text=True)
                     out = p.stdout.strip()
@@ -1079,6 +1142,7 @@ class ActionPipeline:
         text_response = ""
         final_ok = True
         turn_cancelled = False
+        closed_on_promise = False
         trace = turn.trace
         step_count = 0
         _verifier = MetacognitiveVerifier()
@@ -1206,6 +1270,29 @@ class ActionPipeline:
                 for result in results
             )
 
+            # ── Señal de progreso: ¿este paso aporta algo nuevo? ────────────
+            # Una lectura IDENTICA a otra ya hecha en el turno no aporta
+            # informacion. Es el bucle de re-verificacion que quema el turno.
+            redundant_reads = 0
+            for call, result in zip(calls, results):
+                fingerprint = self._call_fingerprint(call)
+                if _is_repeatable_call(call):
+                    already_seen = fingerprint in turn.seen_reads
+                    turn.seen_reads.add(fingerprint)
+                    if already_seen:
+                        redundant_reads += 1
+                        output = result.get("output")
+                        if isinstance(output, dict):
+                            output["redundant"] = True
+                            output["note"] = (
+                                "Lectura IDENTICA ya realizada en este turno: no "
+                                "aporta informacion nueva. Actua o concluye."
+                            )
+                elif result.get("ok"):
+                    # Un cambio real invalida las lecturas previas: despues de
+                    # escribir, volver a leer SI aporta (el contenido cambio).
+                    turn.seen_reads.clear()
+
             # ── Post-Action Verification ─────────────────────────────────────
             # For each call+result pair, attempt empirical verification.
             # This prevents WIS from claiming success without real evidence.
@@ -1309,6 +1396,47 @@ class ActionPipeline:
 
             final_ok = ok
 
+            # ── Anti-bucle: si TODO el paso fue re-leer lo mismo, no avanzamos.
+            # Sin esto el agente repite lecturas hasta agotar los 50 pasos y
+            # cierra en promesa, que es justo el "se gasta 25 turnos sin
+            # conseguir el objetivo" reportado.
+            if calls and redundant_reads == len(calls):
+                turn.redundant_steps += 1
+                event_bus.emit("pipeline.loop_no_progress", {
+                    "session_id": session_id,
+                    "turn_id": turn.turn_id,
+                    "step": step,
+                    "streak": turn.redundant_steps,
+                    "actions": [
+                        c.get("action") or c.get("name") or "?" for c in calls
+                    ],
+                })
+                if turn.redundant_steps >= _MAX_REDUNDANT_STEPS:
+                    logger.warning(
+                        "pipeline: turno cortado por re-lecturas identicas "
+                        "(paso %s/%s, racha %s)",
+                        step, self.max_steps, turn.redundant_steps,
+                    )
+                    verified_count = sum(1 for t in trace if t.get("verified"))
+                    text_response = (
+                        "Detuve el turno: los ultimos %s pasos repitieron "
+                        "lecturas identicas sin avanzar hacia el objetivo "
+                        "(%s de %s pasos usados).\n"
+                        "Acciones verificadas en este turno: %s de %s."
+                        % (turn.redundant_steps, step, self.max_steps,
+                           verified_count, len(trace))
+                    )
+                    final_ok = False
+                    break
+                pending_nudge = _NO_PROGRESS_NUDGE
+                logger.warning(
+                    "pipeline: sin progreso en paso %s (re-lecturas identicas, "
+                    "racha %s/%s) - nudge",
+                    step, turn.redundant_steps, _MAX_REDUNDANT_STEPS,
+                )
+                continue
+            turn.redundant_steps = 0
+
             if duplicate_only:
                 text_response = (
                     text_response.strip()
@@ -1405,6 +1533,7 @@ class ActionPipeline:
         # Si ya se completaron acciones verificadas (crear archivos, ejecutar comandos), no se
         # invalida el trabajo realizado.
         if _announces_future_action(text_response):
+            closed_on_promise = True
             ok_actions = sorted({
                 str(t.get("call", {}).get("action") or t.get("call", {}).get("name") or "?")
                 for t in trace if t.get("verified")
@@ -1444,7 +1573,10 @@ class ActionPipeline:
             except Exception:
                 logger.warning("pipeline: could not remember interaction.")
 
-        if final_ok:
+        # Un turno cerrado en promesa NO debe cachearse como skill: la secuencia
+        # de llamadas esta incompleta y reutilizarla reproduce el mismo bucle de
+        # re-verificacion en el siguiente intento.
+        if final_ok and not closed_on_promise:
             self.skill_memory.record_success(text, all_calls, text_response)
             # Tarea asíncrona de destilación para enriquecer el Modo Rápido (Offline Mode)
             asyncio.create_task(self._distill_and_cache(text, all_calls, text_response))

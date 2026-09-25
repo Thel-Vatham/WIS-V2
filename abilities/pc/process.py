@@ -24,17 +24,32 @@ class ProcessOps:
     """Process control: list/start/kill (cross-platform)."""
 
     @staticmethod
-    def list() -> builtins.list[dict[str, str]]:
-        """List running processes (top CPU consumers)."""
-        if os.name == "nt":
-            return ProcessOps._list_windows()
+    def list(name_filter: str = "", limit: int | None = None) -> builtins.list[dict[str, str]]:
+        """List running processes.
+
+        ``name_filter``: substring case-insensitive sobre el nombre del proceso.
+        ``limit``: tope de resultados; ``None`` devuelve todos.
+
+        Antes no aceptaba filtro y recortaba a los primeros 40 procesos de
+        psutil. El orden de ``process_iter`` NO es por consumo, asi que filtrar
+        por nombre o esperar a que apareciera un proceso con PID alto era
+        imposible desde `desktop.list_processes` / `desktop.wait_for_process`.
+        """
+        rows = ProcessOps._list_windows() if os.name == "nt" else ProcessOps._list_unix()
+        needle = (name_filter or "").strip().lower()
+        if needle:
+            rows = [r for r in rows if needle in str(r.get("name", "")).lower()]
+        return rows[:limit] if limit else rows
+
+    @staticmethod
+    def _list_unix() -> builtins.list[dict[str, str]]:
         try:
             out = subprocess.run(
                 ["ps", "-eo", "pid,pcpu,pmem,comm", "--sort=-pcpu"],
                 capture_output=True, text=True, timeout=10,
             ).stdout
             rows: builtins.list[dict[str, str]] = []
-            for line in out.strip().splitlines()[1:21]:
+            for line in out.strip().splitlines()[1:]:
                 parts = line.split(None, 3)
                 if len(parts) == 4:
                     rows.append({"pid": parts[0], "cpu": parts[1], "mem": parts[2], "name": parts[3]})
@@ -63,7 +78,7 @@ class ProcessOps:
                     })
                 except (psutil.NoSuchProcess, psutil.AccessDenied):
                     continue
-            return procs[:40]
+            return procs
         except Exception as _exc:
             logger.debug("Operacion no fatal suprimida: %s", _exc)
 

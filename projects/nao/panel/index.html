@@ -26,6 +26,11 @@
                     <div class="battery-level" id="batt-level"></div>
                     <span id="batt-text">--%</span>
                 </div>
+                <div class="mic-mini">
+                    <i class="fa-solid fa-microphone" id="mic-mini-icon"></i>
+                    <div class="meter mini"><div class="meter-fill" id="mic-mini-fill"></div></div>
+                    <span id="mic-mini-text">--</span>
+                </div>
             </div>
 
             <nav class="main-nav">
@@ -103,6 +108,65 @@
                         <button class="primary-btn" onclick="speak()">Speak</button>
                     </div>
                 </div>
+
+                <div class="card mt-4">
+                    <h3><i class="fa-solid fa-volume-high"></i> Speaker Volume</h3>
+                    <div class="volume-row">
+                        <i class="fa-solid fa-volume-low"></i>
+                        <input type="range" id="vol-slider" min="0" max="100" step="5" value="50"
+                               oninput="onVolumeInput(this.value)">
+                        <i class="fa-solid fa-volume-high"></i>
+                        <span class="vol-value" id="vol-value">--%</span>
+                    </div>
+                    <div class="action-grid mt-2">
+                        <button class="action-btn" id="mute-btn" onclick="toggleMute()">
+                            <i class="fa-solid fa-volume-xmark"></i> Mute
+                        </button>
+                        <button class="action-btn" onclick="refreshVolume()">
+                            <i class="fa-solid fa-rotate"></i> Read from NAO
+                        </button>
+                        <button class="action-btn" onclick="apiCall('speak', {text: 'Asi de fuerte hablo ahora', language: 'Spanish'})">
+                            <i class="fa-solid fa-bullhorn"></i> Test
+                        </button>
+                    </div>
+                    <p class="hint" id="vol-hint">El nivel se aplica al mover el deslizador.</p>
+                </div>
+
+                <div class="card mt-4">
+                    <h3><i class="fa-solid fa-microphone-lines"></i> Microphones (live)</h3>
+                    <div class="mic-status-row">
+                        <span class="pill" id="mic-pill">Sin datos</span>
+                        <span class="hint" id="mic-source"></span>
+                    </div>
+                    <div class="mic-bars">
+                        <div class="mic-bar">
+                            <span>Front</span>
+                            <div class="meter"><div class="meter-fill" id="mic-front"></div></div>
+                            <code id="mic-front-val">0</code>
+                        </div>
+                        <div class="mic-bar">
+                            <span>Rear</span>
+                            <div class="meter"><div class="meter-fill" id="mic-rear"></div></div>
+                            <code id="mic-rear-val">0</code>
+                        </div>
+                        <div class="mic-bar">
+                            <span>Left</span>
+                            <div class="meter"><div class="meter-fill" id="mic-left"></div></div>
+                            <code id="mic-left-val">0</code>
+                        </div>
+                        <div class="mic-bar">
+                            <span>Right</span>
+                            <div class="meter"><div class="meter-fill" id="mic-right"></div></div>
+                            <code id="mic-right-val">0</code>
+                        </div>
+                    </div>
+                    <div class="action-grid mt-2">
+                        <button class="primary-btn" id="mic-test-btn" onclick="micTest()">
+                            <i class="fa-solid fa-ear-listen"></i> Test hearing (6s)
+                        </button>
+                    </div>
+                    <p class="hint" id="mic-test-status">Si las barras se mueven al hablar, NAO te esta oyendo.</p>
+                </div>
                 
                 <div class="card mt-4">
                     <h3>LED Control</h3>
@@ -131,6 +195,11 @@
                         <button class="primary-btn" onclick="captureImage()"><i class="fa-solid fa-camera"></i> Capture Frame</button>
                         <button class="action-btn" id="stream-btn" onclick="toggleStream()"><i class="fa-solid fa-video"></i> Start Stream</button>
                     </div>
+                    <div class="cam-tweaks">
+                        <label><input type="checkbox" id="cam-swap" onchange="captureImage()"> Swap R/B (si los colores salen raros)</label>
+                        <label><input type="checkbox" id="cam-flip" onchange="captureImage()"> Flip vertical (si sale boca abajo)</label>
+                    </div>
+                    <p class="hint" id="cam-status"></p>
                 </div>
             </section>
             

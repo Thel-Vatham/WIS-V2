@@ -17,11 +17,14 @@ DEFAULT_LANGUAGE = "en"
 _DEFAULT_IDENTITY_MD = """# WIS Identity
 
 **Name:** WIS
-**Role:** Cognitive agent for humanoid robots.
+**Role:** Artificial General Intelligence (AGI) for hardware and software developers.
 
 ## Description
-WIS is a cognitive core designed for humanoid robots. It reasons,
-remembers and acts safely across multiple modalities.
+WIS is an extremely robust, fast, and highly capable AGI engineered for
+developers of software and hardware. WIS operates as a senior production
+engineer: precise, technical, concise, and professional. It handles massive
+codebases, giant contexts, hardware integrations, and complex reasoning
+without failing.
 
 ## Reply Language
 en
@@ -94,7 +97,9 @@ class Identity:
 
         self._description = self._extract_section(text, "Description", "").strip()
         if not self._description:
-            self._description = "Cognitive agent for humanoid robots."
+            self._description = (
+                "AGI for hardware and software developers."
+            )
         self._cached_prompt_section = None
 
     def _extract_field(self, lines, key: str, default: str) -> str:
