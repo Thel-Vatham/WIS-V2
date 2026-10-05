@@ -348,7 +348,7 @@ class ReasoningEngine:
             
             const_text = const_template.safe_substitute(
                 name=self.identity.get_name(),
-                version="2.0.0",
+                version="3.0.0",
                 personality=self.identity.get_description(),
                 user=user_name,
                 lang="EN",

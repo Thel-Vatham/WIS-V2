@@ -191,7 +191,7 @@ class MCPClient:
         res = self._send("initialize", {
             "protocolVersion": "2024-11-05",
             "capabilities": {"tools": {}},
-            "clientInfo": {"name": "AVRORA", "version": "2.0.0"},
+            "clientInfo": {"name": "WIS", "version": "3.0.0"},
         })
         self._is_initialized = True
         logger.info("Initialized MCP server '%s': %s", self.config.name, res.get("serverInfo", {}))

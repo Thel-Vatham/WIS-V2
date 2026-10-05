@@ -25,7 +25,7 @@ TEMPLATES_DIR = BASE_DIR / "templates"
 WIS_ROOT = BASE_DIR.parent
 LOGS_DIR = WIS_ROOT / "logs"
 
-app = FastAPI(title="WIS System Dashboard", version="1.0.0")
+app = FastAPI(title="WIS System Dashboard", version="3.0.0")
 
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))

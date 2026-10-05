@@ -10,4 +10,4 @@ Standard programming architecture:
   - pipeline: 3-path action execution pipeline
   - event_bus: Pub/sub event bus
 """
-__version__ = "1.0.0"
+__version__ = "3.0.0"

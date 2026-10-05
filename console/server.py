@@ -471,7 +471,7 @@ def create_app(
     app = FastAPI(
         title="WIS Console",
         description="Servidor web de la consola de WIS.",
-        version="1.0.0",
+        version="3.0.0",
         lifespan=_lifespan,
     )
 
