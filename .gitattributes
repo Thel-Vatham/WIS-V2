@@ -1,0 +1,19 @@
+# Normalize line endings: store text files as LF in the repo,
+# check out as native (CRLF on Windows) on the working tree.
+* text=auto
+
+# Windows batch scripts MUST keep CRLF or they break.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Binary assets — never line-ending normalize.
+*.rar binary
+*.db binary
+*.sqlite binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.bin binary
+*.onnx binary
+*.gguf binary
