@@ -237,6 +237,18 @@ def build_core(settings: dict) -> dict:
     _register_default_abilities(registry, settings, hw_vault)
     logger.info(f"Abilities: {list(registry.all().keys())}")
 
+    # --- Always-on core pillars ("la piel") ---
+    # Persisted + validated against the live registry: a declared pillar tool
+    # that is not registered is reported honestly (never a phantom claim).
+    from core.skill_inventory import SkillInventory, collect_registered
+    skin = SkillInventory(db_path=db_path)
+    missing = skin.sync(collect_registered(registry))
+    if missing:
+        logger.warning("SkillInventory: pillar tools missing from registry: %s", missing)
+    else:
+        logger.info("SkillInventory: %s core pillars validated", len(skin.pillars()))
+    cortex.skill_inventory = skin
+
     # --- Action Pipeline (Pure-LLM Agentic ReAct Multi-Step) ---
     max_steps = agentic_cfg.get("max_steps", 10)
     praxis = ActionPipeline(

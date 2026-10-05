@@ -32,11 +32,14 @@ class ReasoningEngine:
         identity: Identity,
         memory: Memory,
         router: Optional[ModelRouter] = None,
+        skill_inventory: Optional[Any] = None,
     ) -> None:
         self.llm_client: LLMClient = llm_client
         self.identity: Identity = identity
         self.memory: Memory = memory
         self.router: ModelRouter = router or ModelRouter()
+        # "La piel": pilares de capacidades siempre disponibles (opcional).
+        self.skill_inventory: Optional[Any] = skill_inventory
         # Mapa: nombre_funcion_api → (skill, action) para revertir tool_calls.
         self._tool_map: Dict[str, Any] = {}
         self._tool_name_map = self._tool_map
@@ -428,6 +431,11 @@ class ReasoningEngine:
                         tools_section.append("  Parameters: None")
                 tools_section.append("")  # newline
             parts.append("\n".join(tools_section))
+
+        # 6.6 Core Capabilities ("la piel"): always-on pillars, validated
+        # against the live registry. The model must NEVER assume these are missing.
+        if self.skill_inventory is not None:
+            parts.append(self.skill_inventory.text())
 
         # 7. Dynamic Context (Facts and memories)
         if context.strip():

@@ -12,6 +12,7 @@ from .code_tools import (
 )
 from .code_interpreter import run_python_code
 from .ast_refactor import ast_inspect_symbols, ast_rename_symbol
+from .tdd_runner import run_tdd_cycle
 
 
 class CodeToolsAbility(Ability):
@@ -80,6 +81,16 @@ class CodeToolsAbility(Ability):
                 "action": "ast_rename_symbol",
                 "description": "Rename an identifier in Python via AST.",
                 "params": {"path": "file", "old_name": "str", "new_name": "str", "scope": "all or class or function"}
+            },
+            {
+                "action": "tdd_cycle",
+                "description": "Execute a full Red-Green-Commit TDD cycle in an isolated shadow workspace: stage a failing test, provide the implementation, verify all tests pass, then atomically commit both files to the host only if green.",
+                "params": {
+                    "target_file": "relative path of the implementation file",
+                    "test_file": "relative path of the test file",
+                    "test_code": "full content of the test file",
+                    "implementation_code": "full content of the implementation file",
+                }
             },
         ]
 
@@ -175,6 +186,20 @@ class CodeToolsAbility(Ability):
                 if isinstance(r, dict) and "error" in r:
                     return {"success": False, "message": r["error"]}
                 return {"success": True, "message": str(r)}
+
+            if a == "tdd_cycle":
+                r = await asyncio.to_thread(
+                    run_tdd_cycle,
+                    params.get("target_file", ""),
+                    params.get("test_file", ""),
+                    params.get("test_code", ""),
+                    params.get("implementation_code", ""),
+                )
+                return {
+                    "success": bool(r.get("success")),
+                    "data": r,
+                    "message": r.get("message", ""),
+                }
 
             return {"success": False, "message": f"Unknown action: {action}"}
 
