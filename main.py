@@ -427,6 +427,51 @@ def _register_default_abilities(registry: AbilityRegistry, settings: dict, hw_va
     except Exception as e:
         logger.warning(f"NAORobotAbility not loaded: {e}")
 
+    # ── Subagents & SOTA orchestration (previously orphaned, now wired) ─────
+    try:
+        from abilities.antigravity_tools import AntigravityToolsAbility
+        registry.register(AntigravityToolsAbility())
+        from abilities.dev_agent import DevAgent
+        registry.register(DevAgent())
+        from abilities.pc_agent import PCAgent
+        registry.register(PCAgent())
+        from abilities.research_agent import ResearchAgent
+        registry.register(ResearchAgent())
+        from abilities.runtime_manager import RuntimeManager
+        registry.register(RuntimeManager())
+        from abilities.telepathy import SwarmTelepathyAbility
+        registry.register(SwarmTelepathyAbility())
+    except Exception as e:
+        logger.warning(f"Subagent abilities not loaded: {e}")
+
+    # Cron cognitivo: tareas autonomas programadas en background
+    try:
+        from abilities.cron import CronAbility
+        registry.register(CronAbility())
+    except Exception as e:
+        logger.warning(f"CronAbility not loaded: {e}")
+
+    # Model Context Protocol (MCP) stdio client
+    try:
+        from abilities.mcp import MCPAbility
+        registry.register(MCPAbility())
+    except Exception as e:
+        logger.warning(f"MCPAbility not loaded: {e}")
+
+    # Swarm multi-agent coordination (blackboard + file locks)
+    try:
+        from abilities.swarm import SwarmAbility
+        registry.register(SwarmAbility())
+    except Exception as e:
+        logger.warning(f"SwarmAbility not loaded: {e}")
+
+    # Background jobs (TaskManager)
+    try:
+        from abilities.background import BackgroundAbility
+        registry.register(BackgroundAbility())
+    except Exception as e:
+        logger.warning(f"BackgroundAbility not loaded: {e}")
+
     # Custom abilities generated dynamically (robots, IoT, etc.)
     try:
         registry.load_custom_directory()

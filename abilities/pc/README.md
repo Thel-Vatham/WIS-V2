@@ -19,14 +19,15 @@ Provides native low-level interaction with Windows OS: GDI/DWM screen capture, C
 | [`vision_engine.py`](vision_engine.py) | Multimodal CPU vision engine (<1.2s SLA): Zero-Shot CLIP ViT-B/32 ONNX, RapidOCR ONNX, and 64-bit perceptual screen diffing (dHash) cache (0.2 ms on static screens). |
 | [`screen_vision.py`](screen_vision.py) | Native GDI BitBlt screen capture and GPU-accelerated window capture (`PrintWindow` with `PW_RENDERFULLCONTENT`). |
 | [`shell.py`](shell.py) | Safe terminal execution in PowerShell/cmd with path space auto-quoting, execution timeouts, and real-time streaming execution (`run_streaming`). |
-| [`commands.py`](commands.py) | Innate command catalog with explicit destructive action policy matrix (`DESTRUCTIVE_ACTIONS`) and 0-token monosyllabic fast-path. |
 | [`excel_tools.py`](excel_tools.py) | Reading, writing, and structured table inspection of `.xlsx` and `.csv` workbooks. |
 | [`pdf_tools.py`](pdf_tools.py) | Text, table, and metadata extraction from `.pdf` documents and report generation via ReportLab. |
 | [`pptx_tools.py`](pptx_tools.py) | Automated presentation generator creating full `.pptx` slide decks from structured outlines. |
 | [`word_tools.py`](word_tools.py) | Document builder for styled `.docx` reports and articles. |
 | [`toast_notifications.py`](toast_notifications.py) | Native Windows 10/11 Action Center toast notifications (`AVRORA Notify`). |
 | [`system_folders.py`](system_folders.py) | Dynamic Windows Known Folder resolution via Win32 `SHGetKnownFolderPath` (Desktop, Downloads, Documents, Pictures). |
-| [`workspace_env.py`](workspace_env.py) | Local developer environment inspector (Git repositories, compilers, IDEs, and runtimes). |
-| [`nl_commands.py`](nl_commands.py) | Tool dispatch surface for LLM function calling (`PCInterpreter`) and natural language mapping. |
+| [`code_tools.py`](code_tools.py) | Surgical code editing (grep, view, atomic replace, write) and AST refactoring. |
+| [`tdd_runner.py`](tdd_runner.py) | Red-Green-Commit TDD cycle in an isolated shadow workspace. |
+| [`shadow_workspace.py`](shadow_workspace.py) | Non-destructive staging workspace with commit-on-pass semantics. |
+| [`code_interpreter.py`](code_interpreter.py) | Hardened, sandboxed Python code interpreter (risk assessment, resource limits, secret sanitization). |
 
 
